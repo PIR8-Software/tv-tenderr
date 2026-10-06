@@ -26,7 +26,7 @@
 
         /* Sidebar */
         .sidebar { width: 64px; background: var(--bg-sidebar); display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 8px; flex-shrink: 0; }
-        .sidebar-item { width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; font-size: 20px; }
+        .sidebar-item { width: 48px; height: 48px; border: 0; background: transparent; color: inherit; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; font-size: 20px; }
         .sidebar-item:hover { background: rgba(255,255,255,0.1); }
         .sidebar-item.active { background: var(--accent); }
         .sidebar-logo { margin-bottom: 16px; display: flex; align-items: center; justify-content: center; }
@@ -55,7 +55,7 @@
         .card-meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: flex; justify-content: space-between; align-items: center; }
         .card-rating { color: var(--accent-yellow); }
         .card-actions { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; gap: 4px; opacity: 0; transition: opacity 0.2s; }
-        .card:hover .card-actions { opacity: 1; }
+        .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
         .card-btn { width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
         .card-btn.green { background: var(--accent-green); color: #fff; }
         .card-btn.red { background: var(--accent); color: #fff; }
@@ -83,7 +83,7 @@
 
         /* Mode tabs */
         .mode-tabs { display: flex; gap: 4px; }
-        .mode-tab { padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; color: var(--text-dim); }
+        .mode-tab { padding: 6px 14px; border: 0; background: transparent; font-family: inherit; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; color: var(--text-dim); }
         .mode-tab:hover { background: rgba(255,255,255,0.05); }
         .mode-tab.active { background: var(--accent); color: #fff; }
         .mode-tab.active-green { background: var(--accent-green); color: #fff; }
@@ -166,12 +166,12 @@
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-logo"><img src="/static/icon_round_64.png" alt="TV Tenderr" style="width:48px;height:48px;border-radius:50%;"></div>
-        <div class="sidebar-item active" data-view="movies" title="Movies">🎬</div>
-        <div class="sidebar-item" data-view="shows" title="Shows">📺</div>
-        <div class="sidebar-item" data-view="discover" title="Discover">🔍</div>
-        <div class="sidebar-item" data-view="calendar" title="Calendar">📅</div>
-        <div class="sidebar-item" data-view="history" title="History">📋</div>
-        <div class="sidebar-item" data-view="settings" title="Settings">⚙️</div>
+        <button type="button" class="sidebar-item active" data-view="movies" title="Movies" aria-label="Movies">🎬</button>
+        <button type="button" class="sidebar-item" data-view="shows" title="Shows" aria-label="Shows">📺</button>
+        <button type="button" class="sidebar-item" data-view="discover" title="Discover" aria-label="Discover">🔍</button>
+        <button type="button" class="sidebar-item" data-view="calendar" title="Calendar" aria-label="Calendar">📅</button>
+        <button type="button" class="sidebar-item" data-view="history" title="History" aria-label="History">📋</button>
+        <button type="button" class="sidebar-item" data-view="settings" title="Settings" aria-label="Settings">⚙️</button>
     </div>
 
     <!-- Main content -->
@@ -179,15 +179,15 @@
         <div class="topbar">
             <div class="topbar-title" id="pageTitle">Movies</div>
             <div class="mode-tabs" id="discoverTabs" style="display:none">
-                <div class="mode-tab active" data-type="movies">🎬 Movies</div>
-                <div class="mode-tab" data-type="shows">📺 Shows</div>
+                <button type="button" class="mode-tab active" data-type="movies">🎬 Movies</button>
+                <button type="button" class="mode-tab" data-type="shows">📺 Shows</button>
             </div>
             <div class="filter-bar" id="sortBar" style="display:none">
-                <div class="filter-chip active" data-sort="popularity.desc">🔥 Popular</div>
-                <div class="filter-chip" data-sort="release_date.desc">🆕 Newest</div>
-                <div class="filter-chip" data-sort="vote_average.desc">⭐ Top Rated</div>
+                <button type="button" class="filter-chip active" data-sort="popularity.desc">🔥 Popular</button>
+                <button type="button" class="filter-chip" data-sort="release_date.desc">🆕 Newest</button>
+                <button type="button" class="filter-chip" data-sort="vote_average.desc">⭐ Top Rated</button>
             </div>
-            <input type="text" class="topbar-search" placeholder="Search..." id="searchInput">
+            <input type="text" class="topbar-search" placeholder="Search..." aria-label="Search" id="searchInput">
             <div class="view-toggle">
                 <button class="view-btn active" data-viewmode="card" title="Card view">🃏</button>
                 <button class="view-btn" data-viewmode="grid" title="Grid view">⊞</button>
@@ -286,6 +286,170 @@
             return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); };
         }
 
+        const DESTRUCTIVE_UNDO_MS = 10000;
+        let pendingDestructive = null;
+        let undoTimer = null;
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function safeUrl(value) {
+            const text = String(value || '');
+            if (text.startsWith('https://') || text.startsWith('http://') || text.startsWith('/')) return escapeHtml(text);
+            return '';
+        }
+
+        function element(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = String(text ?? '');
+            return node;
+        }
+
+        function imageUrl(value) {
+            try {
+                const url = new URL(String(value || ''), location.href);
+                return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+            } catch (_) { return ''; }
+        }
+
+        function poster(value, title, className) {
+            const img = element('img', className);
+            img.alt = String(title || '');
+            img.src = imageUrl(value);
+            img.addEventListener('error', () => { img.style.visibility = 'hidden'; }, {once: true});
+            return img;
+        }
+
+        function button(label, className, callback) {
+            const node = element('button', className, label);
+            node.type = 'button';
+            node.setAttribute('aria-label', label);
+            node.addEventListener('click', event => { event.stopPropagation(); callback(); });
+            return node;
+        }
+
+        function renderGrid(content, items, type) {
+            const mediaType = type === 'discover' ? discoverType : type;
+            const grid = element('div', 'card-grid');
+            items.forEach(item => {
+                const discover = type === 'discover';
+                const card = element('div', 'card');
+                const open = () => discover ? showDiscoverDetail(item, mediaType) : showDetail(item, type);
+                card.tabIndex = 0;
+                card.setAttribute('role', 'button');
+                card.setAttribute('aria-label', 'Details: ' + item.title);
+                card.addEventListener('click', open);
+                card.addEventListener('keydown', event => {
+                    if (event.target === card && ['Enter', ' '].includes(event.key)) { event.preventDefault(); open(); }
+                });
+                card.append(poster(item.posterUrl, item.title, 'card-poster'));
+                const actions = element('div', 'card-actions');
+                actions.append(button(discover ? 'Add' : 'Keep', 'card-btn green', () => discover ? discoverAdd(item.tmdbId, mediaType) : actionKeep(item.id, type)));
+                actions.append(button(discover ? 'Dislike' : 'Block', 'card-btn red', () => discover ? scheduleDiscoverDislike(item, mediaType) : scheduleLibraryBlock(item.id, type, item.title)));
+                const info = element('div', 'card-info');
+                info.append(element('div', 'card-title', item.title), element('div', 'card-meta', [item.year, item.sizeGB ? item.sizeGB + ' GB' : '', item.status, item.rating].filter(Boolean).join(' · ')));
+                if (item.cast?.length) info.append(element('div', '', item.cast.join(', ')));
+                if (item.watched) info.append(element('div', '', 'Watched'));
+                appendLinks(info, item, discover);
+                card.append(actions, info);
+                grid.append(card);
+            });
+            content.replaceChildren(grid);
+        }
+
+        function appendLinks(parent, item, discover) {
+            const links = [
+                [item.trailerId, 'Trailer', 'https://www.youtube.com/watch?v='],
+                [item.imdbId, 'IMDb', 'https://www.imdb.com/title/'],
+                [discover && item.tmdbId, 'TMDb', 'https://www.themoviedb.org/' + (discoverType === 'movies' ? 'movie/' : 'tv/')]
+            ];
+            links.forEach(([id, label, prefix]) => {
+                if (!id) return;
+                const link = element('a', '', label);
+                link.href = prefix + encodeURIComponent(id);
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.addEventListener('click', event => event.stopPropagation());
+                parent.append(link);
+            });
+        }
+
+        function authHeaders(extra) {
+            const headers = Object.assign({}, extra || {});
+            const token = sessionStorage.getItem('tvTenderrToken') || '';
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            return headers;
+        }
+
+        function apiFetch(url, options) {
+            const opts = Object.assign({}, options || {});
+            opts.headers = authHeaders(opts.headers);
+            return fetch(url, opts);
+        }
+
+        function clearPendingDestructive() {
+            if (undoTimer) clearTimeout(undoTimer);
+            undoTimer = null;
+            pendingDestructive = null;
+            const banner = document.getElementById('undoBanner');
+            if (banner) banner.remove();
+        }
+
+        // Library IDs and TMDb IDs are separate namespaces; movie/show IDs can collide.
+        function actionIdentity(namespace, type, id) {
+            return JSON.stringify([namespace, type, String(id)]);
+        }
+
+        function cancelConflictingDestructive(identity) {
+            if (pendingDestructive?.identity === identity) clearPendingDestructive();
+        }
+
+        function scheduleLibraryBlock(id, type, title) {
+            scheduleDestructive('Delete: ' + title, actionIdentity('library', type, id), () => actionBlock(id, type));
+        }
+
+        function scheduleDiscoverDislike(item, type) {
+            const {tmdbId, title, year, posterUrl} = item;
+            scheduleDestructive('Exclude: ' + title, actionIdentity('discover', type, tmdbId), () => discoverHide(tmdbId, title, year, posterUrl, type));
+        }
+
+        function scheduleDestructive(message, identity, action) {
+            clearPendingDestructive();
+            pendingDestructive = Object.freeze({identity, action});
+            const banner = document.createElement('div');
+            banner.id = 'undoBanner';
+            banner.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1E1E2E;color:#fff;padding:12px 16px;border-radius:8px;z-index:2000;display:flex;gap:12px;align-items:center;';
+            const label = document.createElement('span');
+            label.textContent = message;
+            const undo = document.createElement('button');
+            undo.type = 'button';
+            undo.textContent = 'Undo';
+            undo.onclick = () => clearPendingDestructive();
+            banner.appendChild(label);
+            banner.appendChild(undo);
+            document.body.appendChild(banner);
+            undoTimer = setTimeout(() => {
+                const pending = pendingDestructive;
+                pendingDestructive = null;
+                undoTimer = null;
+                if (banner.parentNode) banner.remove();
+                if (pending) pending.action();
+            }, DESTRUCTIVE_UNDO_MS);
+        }
+
+        async function postChecked(url, options) {
+            const response = await apiFetch(url, options);
+            if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+            return response;
+        }
+
         function renderSingleCard(content, type) {
             if (currentItems.length === 0) {
                 content.innerHTML = '<div class="loading">No items to show</div>';
@@ -298,53 +462,35 @@
                 return;
             }
 
+            content.onclick = null;
+            content.style.cursor = '';
             const item = currentItems[currentCardIndex];
             const isDiscover = type === 'discover';
-            const title = item.title || '';
-            const year = item.year || '';
-            const poster = item.posterUrl || '';
-            const rating = item.rating ? `⭐ ${item.rating.toFixed(1)}` : '';
-            const size = item.sizeGB ? `${item.sizeGB} GB` : '';
-            const status = item.status === 'continuing' ? '🟢 Continuing' : item.status === 'ended' ? '🔴 Ended' : '';
-            const eps = item.episodeCount ? `${item.episodeCount} eps` : '';
-            const overview = item.overview || '';
-            const cast = (item.cast && item.cast.length) ? item.cast.join(', ') : '';
-            const watched = item.watched ? '👁 Watched' : '';
-
-            content.innerHTML = `
-                <div class="single-card-container">
-                    <div class="action-buttons">
-                        ${isDiscover ? `
-                            <button class="action-btn red" onclick="singleDiscoverHide()" title="Dislike and add to Import List Exclusions">✗</button>
-                            <button class="action-btn yellow" onclick="singleSkip()" title="Skip">→</button>
-                            <button class="action-btn green" onclick="singleDiscoverAdd()" title="Add to library">+</button>
-                        ` : `
-                            <button class="action-btn red" onclick="singleBlock()" title="Block">✗</button>
-                            <button class="action-btn yellow" onclick="singleSkip()" title="Skip">→</button>
-                            <button class="action-btn green" onclick="singleKeep()" title="Keep (6mo)">✓</button>
-                            <button class="action-btn blue" onclick="singleSuperKeep()" title="Super Keep">⭐</button>
-                        `}
-                    </div>
-                    <div class="single-card" id="activeCard">
-                        <div class="single-card-badge left" id="badgeLeft">HIDE</div>
-                        <div class="single-card-badge right" id="badgeRight">${isDiscover ? 'ADD' : 'KEEP'}</div>
-                        <div class="single-card-badge up" id="badgeUp">SKIP</div>
-                        <img class="single-card-poster" src="${poster}" alt="${title}">
-                        <div class="single-card-gradient"></div>
-                        <div class="single-card-info">
-                            <div class="single-card-title">${title}</div>
-                            <div class="single-card-meta">${year} ${size ? '· ' + size : ''} ${status ? '· ' + status : ''} ${eps ? '· ' + eps : ''} ${rating ? '· ' + rating : ''}</div>
-                            ${cast ? `<div class="single-card-cast" style="font-size:11px;color:#aaa;margin-top:2px;">${cast}</div>` : ''}
-                            ${watched ? `<div class="single-card-watched" style="font-size:11px;color:#4CAF50;margin-top:2px;">${watched}</div>` : ''}
-                            <div style="margin-top:4px;display:flex;gap:6px;">
-                                ${item.trailerId ? `<a href="https://www.youtube.com/watch?v=${item.trailerId}" target="_blank" style="font-size:11px;color:#FF6B35;text-decoration:none;background:rgba(255,255,255,0.08);padding:3px 8px;border-radius:4px;">▶ Trailer</a>` : ''}
-                                ${item.imdbId ? `<a href="https://www.imdb.com/title/${item.imdbId}" target="_blank" style="font-size:11px;color:#F5C518;text-decoration:none;background:rgba(255,255,255,0.08);padding:3px 8px;border-radius:4px;">🎬 IMDb</a>` : ''}
-                            </div>
-                            <div class="single-card-overview">${overview}</div>
-                        </div>
-                    </div>
-                </div>
-            `;
+            const container = element('div', 'single-card-container');
+            const actions = element('div', 'action-buttons');
+            actions.append(
+                button(isDiscover ? 'Dislike' : 'Block', 'action-btn red', isDiscover ? singleDiscoverHide : singleBlock),
+                button('Skip', 'action-btn yellow', singleSkip),
+                button(isDiscover ? 'Add' : 'Keep', 'action-btn green', isDiscover ? singleDiscoverAdd : singleKeep)
+            );
+            if (!isDiscover) actions.append(button('Super Keep', 'action-btn blue', singleSuperKeep));
+            const card = element('div', 'single-card');
+            card.id = 'activeCard';
+            [['left', 'badgeLeft', 'HIDE'], ['right', 'badgeRight', isDiscover ? 'ADD' : 'KEEP'], ['up', 'badgeUp', 'SKIP']].forEach(([direction, id, text]) => {
+                const badge = element('div', 'single-card-badge ' + direction, text);
+                badge.id = id;
+                card.append(badge);
+            });
+            card.append(poster(item.posterUrl, item.title, 'single-card-poster'), element('div', 'single-card-gradient'));
+            const info = element('div', 'single-card-info');
+            info.append(element('div', 'single-card-title', item.title), element('div', 'single-card-meta', [item.year, item.sizeGB ? item.sizeGB + ' GB' : '', item.status, item.episodeCount ? item.episodeCount + ' eps' : '', item.rating].filter(Boolean).join(' · ')));
+            if (item.cast?.length) info.append(element('div', 'single-card-cast', item.cast.join(', ')));
+            if (item.watched) info.append(element('div', 'single-card-watched', 'Watched'));
+            appendLinks(info, item, isDiscover);
+            info.append(element('div', 'single-card-overview', item.overview));
+            card.append(info);
+            container.append(actions, card);
+            content.replaceChildren(container);
 
             // Drag to swipe
             setupCardDrag();
@@ -383,6 +529,7 @@
                     if (currentX > 150) { card.classList.add('swipe-right'); setTimeout(() => singleAction('right'), 300); }
                     else if (currentX < -150) { card.classList.add('swipe-left'); setTimeout(() => singleAction('left'), 300); }
                     else if (currentY < -150) { card.classList.add('swipe-up'); setTimeout(() => singleAction('up'), 300); }
+                    else if (currentY > 150) { card.classList.add('swipe-down'); setTimeout(() => singleAction('down'), 300); }
                     else { resetCard(card); }
                 } else {
                     resetCard(card);
@@ -392,6 +539,8 @@
         }
 
         function resetCard(card) {
+            if (!card) return;
+            card.classList.remove('swipe-right', 'swipe-left', 'swipe-up', 'swipe-down');
             card.style.transform = '';
             const badges = card.querySelectorAll('.single-card-badge');
             badges.forEach(b => b.style.opacity = 0);
@@ -405,52 +554,53 @@
                 if (isDiscover) singleDiscoverHide(); else singleBlock();
             } else if (direction === 'up') {
                 singleSkip();
+            } else if (direction === 'down') {
+                singleSuperKeep();
             }
         }
 
-        function singleKeep() {
+        async function singleKeep() {
             const item = currentItems[currentCardIndex];
-            if (!item) return;
-            actionKeep(item.id, currentView === 'movies' ? 'movies' : 'shows');
-            currentCardIndex++;
-            renderSingleCard(document.getElementById('contentArea'), currentView);
+            if (item) await actionKeep(item.id, currentView);
         }
 
-        function singleSuperKeep() {
+        async function singleSuperKeep() {
             const item = currentItems[currentCardIndex];
-            if (!item) return;
-            actionSuperKeep(item.id, currentView === 'movies' ? 'movies' : 'shows');
-            currentCardIndex++;
-            renderSingleCard(document.getElementById('contentArea'), currentView);
+            if (item && currentView !== 'discover') await actionSuperKeep(item.id, currentView);
         }
 
         function singleBlock() {
             const item = currentItems[currentCardIndex];
             if (!item) return;
-            actionBlock(item.id, currentView === 'movies' ? 'movies' : 'shows');
-            currentCardIndex++;
-            renderSingleCard(document.getElementById('contentArea'), currentView);
+            resetCard(document.getElementById('activeCard'));
+            const type = currentView;
+            scheduleLibraryBlock(item.id, type, item.title);
         }
 
-        function singleSkip() {
-            currentCardIndex++;
-            renderSingleCard(document.getElementById('contentArea'), currentView);
-        }
-
-        function singleDiscoverAdd() {
+        async function singleSkip() {
             const item = currentItems[currentCardIndex];
             if (!item) return;
-            discoverAdd(item.tmdbId);
-            currentCardIndex++;
-            renderSingleCard(document.getElementById('contentArea'), 'discover');
+            if (currentView === 'discover') {
+                try {
+                    await postChecked(API + `/api/discover/${item.tmdbId}/hide`, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({title: item.title, year: item.year, posterUrl: item.posterUrl, type: discoverType})
+                    });
+                    await loadView();
+                } catch (error) { showToast(error.message); resetCard(document.getElementById('activeCard')); }
+            } else await actionSkip(item.id, currentView);
+        }
+
+        async function singleDiscoverAdd() {
+            const item = currentItems[currentCardIndex];
+            if (item) await discoverAdd(item.tmdbId, discoverType);
         }
 
         function singleDiscoverHide() {
             const item = currentItems[currentCardIndex];
             if (!item) return;
-            discoverHide(item.tmdbId, item.title, item.year || '', item.posterUrl || '');
-            currentCardIndex++;
-            renderSingleCard(document.getElementById('contentArea'), 'discover');
+            resetCard(document.getElementById('activeCard'));
+            scheduleDiscoverDislike(item, discoverType);
         }
 
         async function loadView() {
@@ -465,16 +615,24 @@
                     case 'discover': await loadDiscover(content); break;
                     case 'calendar': await loadCalendar(content); break;
                     case 'history': await loadHistory(content); break;
-                    case 'settings': loadSettings(content); break;
+                    case 'settings': await loadSettings(content); break;
                 }
             } catch (e) {
-                content.innerHTML = `<div class="loading">Error: ${e.message}</div>`;
+                content.replaceChildren(element('div', 'loading', 'Error: ' + e.message));
             }
         }
 
         async function loadLibrary(type, content, search) {
             const endpoint = type === 'movies' ? '/api/movies' : '/api/shows';
-            const res = await fetch(API + endpoint);
+            const params = new URLSearchParams();
+            if (search) params.set('search', search);
+            if (currentFilters.genre) params.set('genre', currentFilters.genre);
+            if (currentFilters.minYear) params.set('min_year', currentFilters.minYear);
+            if (currentFilters.maxYear) params.set('max_year', currentFilters.maxYear);
+            if (currentFilters.minRating) params.set('min_rating', currentFilters.minRating);
+            const query = params.toString();
+            const res = await apiFetch(API + endpoint + (query ? '?' + query : ''));
+            if (!res.ok) throw new Error(`Library request failed: ${res.status}`);
             const data = await res.json();
             const items = type === 'movies' ? data.movies : data.shows;
             const filtered = search ? items.filter(i => (i.title || '').toLowerCase().includes(search.toLowerCase())) : items;
@@ -486,34 +644,13 @@
                 currentCardIndex = 0;
                 renderSingleCard(content, type);
             } else {
-                content.innerHTML = `<div class="card-grid">${filtered.map(item => `
-                    <div class="card" onclick='showDetail(${JSON.stringify(item).replace(/'/g, "&#39;")}, "${type}")'>
-                        <img class="card-poster" src="${item.posterUrl || ''}" alt="${item.title}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22180%22 height=%22270%22 fill=%22%2316213e%22><rect width=%22180%22 height=%22270%22/><text x=%2290%22 y=%22135%22 text-anchor=%22middle%22 fill=%22%23555%22 font-size=%2214%22>${encodeURIComponent(item.title)}</text></svg>'">
-                        <div class="card-actions">
-                            <button class="card-btn green" onclick="event.stopPropagation(); actionKeep(${item.id}, '${type}')" title="Keep">✓</button>
-                            <button class="card-btn red" onclick="event.stopPropagation(); actionBlock(${item.id}, '${type}')" title="Block">✗</button>
-                        </div>
-                        <div class="card-info">
-                            <div class="card-title">${item.title}</div>
-                            <div class="card-meta">
-                                <span>${item.year || ''}</span>
-                                <span class="card-rating">${item.sizeGB ? item.sizeGB + ' GB' : ''} ${item.status === 'continuing' ? '🟢' : item.status === 'ended' ? '🔴' : ''}</span>
-                            </div>
-                            ${item.cast && item.cast.length ? `<div style="font-size:10px;color:#aaa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.cast.join(', ')}</div>` : ''}
-                            ${item.watched ? `<div style="font-size:10px;color:#4CAF50;margin-top:1px;">👁 Watched</div>` : ''}
-                            <div style="margin-top:2px;display:flex;gap:4px;">
-                                ${item.trailerId ? `<a href="https://www.youtube.com/watch?v=${item.trailerId}" target="_blank" style="font-size:9px;color:#FF6B35;text-decoration:none;">▶ Trailer</a>` : ''}
-                                ${item.imdbId ? `<a href="https://www.imdb.com/title/${item.imdbId}" target="_blank" style="font-size:9px;color:#F5C518;text-decoration:none;">🎬 IMDb</a>` : ''}
-                            </div>
-                        </div>
-                    </div>
-                `).join('')}</div>`;
+                renderGrid(content, filtered, type);
             }
         }
 
         async function loadDiscover(content) {
             const endpoint = discoverType === 'movies' ? '/api/discover/movies' : '/api/discover/shows';
-            const res = await fetch(`${API}${endpoint}?page=${currentPage}&limit=20&sort_by=${discoverSort}`);
+            const res = await apiFetch(`${API}${endpoint}?page=${currentPage}&limit=20&sort_by=${discoverSort}`);
             const data = await res.json();
             const items = data.movies || data.shows || [];
 
@@ -524,24 +661,7 @@
                 currentCardIndex = 0;
                 renderSingleCard(content, 'discover');
             } else {
-                content.innerHTML = `<div class="card-grid">${items.map(item => `
-                    <div class="card" onclick='showDiscoverDetail(${JSON.stringify(item).replace(/'/g, "&#39;")})'>
-                        <img class="card-poster" src="${item.posterUrl || ''}" alt="${item.title}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22180%22 height=%22270%22 fill=%22%2316213e%22><rect width=%22180%22 height=%22270%22/><text x=%2290%22 y=%22135%22 text-anchor=%22middle%22 fill=%22%23555%22 font-size=%2214%22>${encodeURIComponent(item.title)}</text></svg>'">
-                        <div class="card-actions">
-                            <button class="card-btn green" onclick="event.stopPropagation(); discoverAdd(${item.tmdbId})" title="Add to library">+</button>
-                            <button class="card-btn red" onclick="event.stopPropagation(); discoverHide(${item.tmdbId}, '${item.title}', '${item.year || ''}', '${item.posterUrl || ''}')" title="Hide">✗</button>
-                        </div>
-                        <div class="card-info">
-                            <div class="card-title">${item.title}</div>
-                            <div class="card-meta">
-                                <span>${item.year || ''}</span>
-                                <span class="card-rating">⭐ ${item.rating ? item.rating.toFixed(1) : 'N/A'}</span>
-                            </div>
-                            ${item.cast && item.cast.length ? `<div style="font-size:10px;color:#aaa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.cast.join(', ')}</div>` : ''}
-                            <div style="margin-top:2px;"><a href="https://www.themoviedb.org/${discoverType === 'movies' ? 'movie' : 'tv'}/${item.tmdbId}" target="_blank" style="font-size:9px;color:#01d277;text-decoration:none;">🔗 TMDb</a></div>
-                        </div>
-                    </div>
-                `).join('')}</div>`;
+                renderGrid(content, items, 'discover');
             }
         }
 
@@ -549,9 +669,9 @@
             const endpoint = currentView === 'history' ? '/api/history' : '/api/shows/history';
             // Show all three histories
             const [moviesHist, showsHist, discoverHist] = await Promise.all([
-                fetch(API + '/api/history').then(r => r.json()),
-                fetch(API + '/api/shows/history').then(r => r.json()),
-                fetch(API + '/api/discover/history').then(r => r.json())
+                apiFetch(API + '/api/history').then(r => r.json()),
+                apiFetch(API + '/api/shows/history').then(r => r.json()),
+                apiFetch(API + '/api/discover/history').then(r => r.json())
             ]);
 
             const all = [
@@ -565,56 +685,85 @@
             const actionColors = { keep: '#2ecc71', super_keep: '#f1c40f', block: '#e74c3c', clean: '#3498db', added: '#2ecc71', hidden: '#e74c3c' };
             const actionLabels = { keep: '✓ KEPT', super_keep: '⭐ SUPER', block: '✗ BLOCKED', clean: '🧹 CLEANED', added: '⬇️ ADDED', hidden: '✗ HIDDEN' };
 
-            content.innerHTML = `<div class="history-list">${all.map(item => `
-                <div class="history-item">
-                    <img class="history-poster" src="${item.posterUrl || ''}" alt="" onerror="this.style.display='none'">
-                    <div class="history-info">
-                        <div class="history-title">${item.title || 'Unknown #' + item.movieId}</div>
-                        <div class="history-action" style="color:${actionColors[item.action] || '#888'}">${actionLabels[item.action] || item.action} · ${item.source} · ${item.year || ''}</div>
-                    </div>
-                    ${item.action === 'keep' || item.action === 'super_keep' ? `<button class="history-btn" style="background:#e74c3c;color:#fff" onclick="unkeep(${item.movieId},'${item.source}')">Un-keep</button>` : ''}
-                    ${item.action === 'block' ? `<button class="history-btn" style="background:#2ecc71;color:#fff" onclick="unblock(${item.movieId},'${item.source}')">Restore</button>` : ''}
-                    ${item.action === 'clean' ? `<button class="history-btn" style="background:#3498db;color:#fff" onclick="unclean(${item.movieId})">Re-monitor</button>` : ''}
-                    ${item.action === 'added' ? `<button class="history-btn" style="background:#e74c3c;color:#fff" onclick="removeDiscover(${item.tmdbId},'${item.type || 'movie'}')">Remove</button>` : ''}
-                    ${item.action === 'hidden' ? `<button class="history-btn" style="background:#2ecc71;color:#fff" title="Restore to Discover and remove its exclusion when applicable" onclick="unhideDiscover(${item.tmdbId})">Show Again</button>` : ''}
-                </div>
-            `).join('')}</div>`;
+            const list = element('div', 'history-list');
+            all.forEach(item => {
+                const row = element('div', 'history-item');
+                const info = element('div', 'history-info');
+                info.append(element('div', 'history-title', item.title || ('Unknown #' + item.movieId)));
+                const action = element('div', 'history-action', [actionLabels[item.action] || item.action, item.source, item.year].filter(Boolean).join(' · '));
+                action.style.color = actionColors[item.action] || '#888';
+                info.append(action);
+                row.append(poster(item.posterUrl, '', 'history-poster'), info);
+                const actions = {
+                    keep: ['Un-keep', () => unkeep(item.movieId, item.source)],
+                    super_keep: ['Un-keep', () => unkeep(item.movieId, item.source)],
+                    block: ['Restore', () => unblock(item.movieId, item.source)],
+                    clean: ['Re-monitor', () => unclean(item.movieId)],
+                    added: ['Remove', () => scheduleDestructive('Remove: ' + item.title, actionIdentity('discover', item.type, item.tmdbId), () => removeDiscover(item.tmdbId, item.type))],
+                    hidden: ['Show Again', () => unhideDiscover(item.tmdbId)]
+                };
+                if (actions[item.action]) row.append(button(actions[item.action][0], 'history-btn', actions[item.action][1]));
+                list.append(row);
+            });
+            content.replaceChildren(list);
         }
 
-        function loadSettings(content) {
-            fetch(API + '/api/config').then(r => r.json()).then(config => {
+        async function loadSettings(content) {
+            const response = await apiFetch(API + '/api/config');
+            if (response.status === 401) {
+                const label = element('label', '', 'Backend API token');
+                const input = element('input', 'settings-input');
+                input.id = 'loginToken'; input.type = 'password'; input.autocomplete = 'off';
+                label.append(input);
+                content.replaceChildren(label, button('Connect', 'btn btn-green', async () => {
+                    const candidate = input.value.trim();
+                    const check = await fetch(API + '/api/config', {headers: {Authorization: 'Bearer ' + candidate}});
+                    if (!check.ok) { showToast('Authentication failed: ' + check.status); return; }
+                    sessionStorage.setItem('tvTenderrToken', candidate);
+                    await loadSettings(content);
+                }));
+                return;
+            }
+            if (!response.ok) throw new Error('Config request failed: ' + response.status);
+            const config = await response.json();
+            {
                 content.innerHTML = `
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
                 <div>
                 <div class="settings-group">
                     <h3>Backend</h3>
-                    <div class="settings-row"><span class="settings-label">Server URL</span><input class="settings-input" id="sBackendUrl" value="${config.backendUrl || 'http://localhost:8899'}"></div>
+                    <div class="settings-row"><span class="settings-label">Server URL</span><input class="settings-input" id="sBackendUrl"></div>
                 </div>
                 <div class="settings-group">
                     <h3>Radarr (Movies)</h3>
-                    <div class="settings-row"><span class="settings-label">URL</span><input class="settings-input" id="sRadarrUrl" value="${config.radarrUrl || ''}"></div>
-                    <div class="settings-row"><span class="settings-label">API Key</span><input class="settings-input" id="sRadarrKey" value="${config.radarrKey || ''}"></div>
+                    <div class="settings-row"><span class="settings-label">API token</span><input class="settings-input" id="sApiToken" type="password" autocomplete="off" value=""></div>
+                    <div class="settings-row"><span class="settings-label">URL</span><input class="settings-input" id="sRadarrUrl"></div>
+                    <div class="settings-row"><span class="settings-label">API Key</span><input class="settings-input" id="sRadarrKey" type="password" autocomplete="off"></div>
                 </div>
                 <div class="settings-group">
                     <h3>Sonarr (TV Shows)</h3>
-                    <div class="settings-row"><span class="settings-label">URL</span><input class="settings-input" id="sSonarrUrl" value="${config.sonarrUrl || ''}"></div>
-                    <div class="settings-row"><span class="settings-label">API Key</span><input class="settings-input" id="sSonarrKey" value="${config.sonarrKey || ''}"></div>
+                    <div class="settings-row"><span class="settings-label">URL</span><input class="settings-input" id="sSonarrUrl"></div>
+                    <div class="settings-row"><span class="settings-label">API Key</span><input class="settings-input" id="sSonarrKey" type="password" autocomplete="off"></div>
                 </div>
                 <div class="settings-group">
                     <h3>Plex</h3>
-                    <div class="settings-row"><span class="settings-label">URL</span><input class="settings-input" id="sPlexUrl" value="${config.plexUrl || ''}"></div>
-                    <div class="settings-row"><span class="settings-label">Token</span><input class="settings-input" id="sPlexToken" value="${config.plexToken || ''}"></div>
+                    <div class="settings-row"><span class="settings-label">URL</span><input class="settings-input" id="sPlexUrl"></div>
+                    <div class="settings-row"><span class="settings-label">Token</span><input class="settings-input" id="sPlexToken" type="password" autocomplete="off"></div>
                 </div>
                 <div class="settings-group">
                     <h3>TMDb (Discover)</h3>
-                    <div class="settings-row"><span class="settings-label">API Key</span><input class="settings-input" id="sTmdbKey" value="${config.tmdbKey || ''}"></div>
+                    <div class="settings-row"><span class="settings-label">API Key</span><input class="settings-input" id="sTmdbKey" type="password" autocomplete="off"></div>
+                    <div class="settings-row"><span class="settings-label">Radarr quality id</span><input class="settings-input" id="sRadarrQuality"></div>
+                    <div class="settings-row"><span class="settings-label">Sonarr quality id</span><input class="settings-input" id="sSonarrQuality"></div>
+                    <div class="settings-row"><span class="settings-label">Radarr root</span><input class="settings-input" id="sRadarrRoot"></div>
+                    <div class="settings-row"><span class="settings-label">Sonarr root</span><input class="settings-input" id="sSonarrRoot"></div>
                 </div>
-                <button class="btn btn-green" onclick="saveSettings()">Save Settings</button>
+                <button class="btn btn-green" id="saveSettingsButton">Save Settings</button>
                 <div class="settings-group" style="margin-top:16px">
                     <h3>🔄 App Updates</h3>
                     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-                        <span style="color:#aaa;font-size:13px">Web UI: v1.3.3</span>
-                        <button class="btn btn-blue" onclick="checkForUpdates()">Check for Updates</button>
+                        <span style="color:#aaa;font-size:13px">Web UI: v1.3.4</span>
+                        <button class="btn btn-blue" id="checkUpdatesButton">Check for Updates</button>
                     </div>
                     <div id="updateStatus" style="font-size:13px;color:#888"></div>
                 </div>
@@ -673,101 +822,154 @@
                 </div>
                 </div>
                 `;
-            });
+                for (const [id, value] of Object.entries({
+                    sBackendUrl: config.backendUrl || 'http://localhost:8899',
+                    sRadarrUrl: config.radarrUrl || '', sSonarrUrl: config.sonarrUrl || '',
+                    sPlexUrl: config.plexUrl || '',
+                    sRadarrQuality: config.radarrQualityId ?? '', sSonarrQuality: config.sonarrQualityId ?? '',
+                    sRadarrRoot: config.radarrRootFolder || '', sSonarrRoot: config.sonarrRootFolder || ''
+                })) content.querySelector('#' + id).value = String(value);
+                for (const [id, saved] of Object.entries({
+                    sRadarrKey: config.hasRadarrKey, sSonarrKey: config.hasSonarrKey,
+                    sPlexToken: config.hasPlexToken, sTmdbKey: config.hasTmdbKey
+                })) content.querySelector('#' + id).placeholder = saved ? 'saved on server' : 'not set';
+                content.querySelector('#saveSettingsButton').addEventListener('click', saveSettings);
+                content.querySelector('#checkUpdatesButton').addEventListener('click', checkForUpdates);
+                content.querySelectorAll('.settings-row').forEach(row => {
+                    const input = row.querySelector('input');
+                    if (input) input.setAttribute('aria-label', row.querySelector('.settings-label').textContent);
+                });
+            }
         }
 
         async function saveSettings() {
+            const token = document.getElementById('sApiToken').value.trim();
             const config = {
                 radarrUrl: document.getElementById('sRadarrUrl').value,
-                radarrKey: document.getElementById('sRadarrKey').value,
                 sonarrUrl: document.getElementById('sSonarrUrl').value,
-                sonarrKey: document.getElementById('sSonarrKey').value,
                 plexUrl: document.getElementById('sPlexUrl').value,
-                plexToken: document.getElementById('sPlexToken').value,
-                tmdbKey: document.getElementById('sTmdbKey').value
+                radarrQualityId: document.getElementById('sRadarrQuality').value,
+                sonarrQualityId: document.getElementById('sSonarrQuality').value,
+                radarrRootFolder: document.getElementById('sRadarrRoot').value,
+                sonarrRootFolder: document.getElementById('sSonarrRoot').value
             };
-            await fetch(API + '/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
-            showToast('Settings saved');
+            const radarrKey = document.getElementById('sRadarrKey').value.trim();
+            const sonarrKey = document.getElementById('sSonarrKey').value.trim();
+            const plexToken = document.getElementById('sPlexToken').value.trim();
+            const tmdbKey = document.getElementById('sTmdbKey').value.trim();
+            if (radarrKey) config.radarrKey = radarrKey;
+            if (sonarrKey) config.sonarrKey = sonarrKey;
+            if (plexToken) config.plexToken = plexToken;
+            if (tmdbKey) config.tmdbKey = tmdbKey;
+            if (token) config.apiToken = token;
+            try {
+                await postChecked(API + '/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config) });
+                if (token) sessionStorage.setItem('tvTenderrToken', token);
+                showToast('Settings saved');
+            } catch (error) {
+                showToast(error.message);
+            }
         }
 
         function showDetail(item, type) {
             const panel = document.getElementById('detailPanel');
-            document.getElementById('detailBackdrop').src = item.backdropUrl || item.posterUrl || '';
-            document.getElementById('detailPoster').src = item.posterUrl || '';
+            document.getElementById('detailBackdrop').src = imageUrl(item.backdropUrl || item.posterUrl);
+            document.getElementById('detailPoster').src = imageUrl(item.posterUrl);
             document.getElementById('detailTitle').textContent = item.title;
             document.getElementById('detailMeta').textContent = `${item.year || ''} · ${item.sizeGB ? item.sizeGB + ' GB' : ''} ${item.status ? '· ' + item.status : ''} ${item.episodeCount ? '· ' + item.episodeCount + ' eps' : ''}`;
             const castText = (item.cast && item.cast.length) ? item.cast.join(', ') : '';
             const watchedText = item.watched ? '👁 Watched in Plex' : '';
-            document.getElementById('detailOverview').innerHTML = 
-                (castText ? `<div style="color:#aaa;font-size:13px;margin-bottom:8px;"><strong>Cast:</strong> ${castText}</div>` : '') +
-                (watchedText ? `<div style="color:#4CAF50;font-size:13px;margin-bottom:8px;">${watchedText}</div>` : '') +
-                `<div>${item.overview || 'No description available.'}</div>`;
-            document.getElementById('detailActions').innerHTML = `
-                <button class="btn btn-green" onclick="actionKeep(${item.id}, '${type}'); closeDetail()">✓ Keep (6mo)</button>
-                <button class="btn btn-yellow" onclick="actionSuperKeep(${item.id}, '${type}'); closeDetail()">⭐ Super Keep</button>
-                <button class="btn btn-red" onclick="actionBlock(${item.id}, '${type}'); closeDetail()">✗ Block</button>
-                <button class="btn btn-outline" onclick="closeDetail()">Close</button>
-            `;
+            const overview = document.getElementById('detailOverview');
+            overview.replaceChildren();
+            if (castText) {
+                const cast = element('div', '', 'Cast: ' + castText);
+                cast.style.cssText = 'color:#aaa;font-size:13px;margin-bottom:8px;';
+                overview.append(cast);
+            }
+            if (watchedText) {
+                const watched = element('div', '', watchedText);
+                watched.style.cssText = 'color:#4CAF50;font-size:13px;margin-bottom:8px;';
+                overview.append(watched);
+            }
+            overview.append(element('div', '', item.overview || 'No description available.'));
+            document.getElementById('detailActions').replaceChildren(
+                button('Keep (6mo)', 'btn btn-green', () => actionKeep(item.id, type)),
+                button('Super Keep', 'btn btn-yellow', () => actionSuperKeep(item.id, type)),
+                button('Block', 'btn btn-red', () => scheduleLibraryBlock(item.id, type, item.title)),
+                button('Close', 'btn btn-outline', closeDetail)
+            );
             panel.classList.add('open');
         }
 
-        function showDiscoverDetail(item) {
+        function showDiscoverDetail(item, type) {
             const panel = document.getElementById('detailPanel');
-            document.getElementById('detailBackdrop').src = item.backdropUrl || item.posterUrl || '';
-            document.getElementById('detailPoster').src = item.posterUrl || '';
+            document.getElementById('detailBackdrop').src = imageUrl(item.backdropUrl || item.posterUrl);
+            document.getElementById('detailPoster').src = imageUrl(item.posterUrl);
             document.getElementById('detailTitle').textContent = item.title;
             document.getElementById('detailMeta').textContent = `${item.year || ''} · ⭐ ${item.rating ? item.rating.toFixed(1) : 'N/A'}`;
             const discoverCast = (item.cast && item.cast.length) ? item.cast.join(', ') : '';
-            document.getElementById('detailOverview').innerHTML = 
-                (discoverCast ? `<div style="color:#aaa;font-size:13px;margin-bottom:8px;"><strong>Cast:</strong> ${discoverCast}</div>` : '') +
-                `<div>${item.overview || 'No description available.'}</div>`;
-            document.getElementById('detailActions').innerHTML = `
-                <button class="btn btn-green" onclick="discoverAdd(${item.tmdbId}); closeDetail()">+ Add to Library</button>
-                <button class="btn btn-red" onclick="discoverHide(${item.tmdbId}, '${item.title}', '${item.year || ''}', '${item.posterUrl || ''}'); closeDetail()">✗ Dislike</button>
-                <button class="btn btn-outline" onclick="closeDetail()">Close</button>
-            `;
+            const overview = document.getElementById('detailOverview');
+            overview.replaceChildren();
+            if (discoverCast) {
+                const cast = element('div', '', 'Cast: ' + discoverCast);
+                cast.style.cssText = 'color:#aaa;font-size:13px;margin-bottom:8px;';
+                overview.append(cast);
+            }
+            overview.append(element('div', '', item.overview || 'No description available.'));
+            document.getElementById('detailActions').replaceChildren(
+                button('Add to Library', 'btn btn-green', () => discoverAdd(item.tmdbId, type)),
+                button('Dislike', 'btn btn-red', () => scheduleDiscoverDislike(item, type)),
+                button('Close', 'btn btn-outline', closeDetail)
+            );
             panel.classList.add('open');
         }
 
         function closeDetail() { document.getElementById('detailPanel').classList.remove('open'); }
 
+        async function performAction(endpoint, message, options = {}) {
+            try {
+                await postChecked(API + endpoint, {method: 'POST', ...options});
+                showToast(message);
+                closeDetail();
+                await loadView();
+            } catch (error) {
+                showToast(error.message);
+                resetCard(document.getElementById('activeCard'));
+            }
+        }
+
         async function actionKeep(id, type) {
-            const endpoint = type === 'movies' ? `/api/movies/${id}/keep` : `/api/shows/${id}/keep`;
-            await fetch(API + endpoint, { method: 'POST' });
-            showToast('Kept for 6 months');
+            cancelConflictingDestructive(actionIdentity('library', type, id));
+            await performAction(`/api/${type === 'movies' ? 'movies' : 'shows'}/${encodeURIComponent(id)}/keep`, 'Kept for 6 months');
         }
 
         async function actionSuperKeep(id, type) {
-            const endpoint = type === 'movies' ? `/api/movies/${id}/super_keep` : `/api/shows/${id}/super_keep`;
-            await fetch(API + endpoint, { method: 'POST' });
-            showToast('⭐ Super Keep');
+            cancelConflictingDestructive(actionIdentity('library', type, id));
+            await performAction(`/api/${type === 'movies' ? 'movies' : 'shows'}/${encodeURIComponent(id)}/super_keep`, 'Super Keep');
+        }
+
+        async function actionSkip(id, type) {
+            await performAction(`/api/${type === 'movies' ? 'movies' : 'shows'}/${encodeURIComponent(id)}/skip`, 'Decide later');
         }
 
         async function actionBlock(id, type) {
-            const endpoint = type === 'movies' ? `/api/movies/${id}/block` : `/api/shows/${id}/block`;
-            await fetch(API + endpoint, { method: 'POST' });
-            showToast('Blocked');
-            loadView();
+            await performAction(`/api/${type === 'movies' ? 'movies' : 'shows'}/${encodeURIComponent(id)}/block`, 'Blocked');
         }
 
-        async function discoverAdd(tmdbId) {
-            const endpoint = discoverType === 'movies' ? `/api/discover/${tmdbId}/add_movie` : `/api/discover/${tmdbId}/add_show`;
-            await fetch(API + endpoint, { method: 'POST' });
-            showToast('Added to library');
-            loadView();
+        async function discoverAdd(tmdbId, type) {
+            cancelConflictingDestructive(actionIdentity('discover', type, tmdbId));
+            await performAction(`/api/discover/${encodeURIComponent(tmdbId)}/${type === 'movies' ? 'add_movie' : 'add_show'}`, 'Added to library');
         }
 
-        async function discoverHide(tmdbId, title, year, posterUrl) {
-            await fetch(API + `/api/discover/${tmdbId}/dislike`, {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ title, year, posterUrl, type: discoverType })
+        async function discoverHide(tmdbId, title, year, posterUrl, type) {
+            await performAction(`/api/discover/${encodeURIComponent(tmdbId)}/dislike`, 'Added to Import List Exclusions', {
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({title, year, posterUrl, type})
             });
-            showToast('Added to Import List Exclusions');
-            loadView();
         }
 
         async function postHistoryAction(endpoint) {
-            const response = await fetch(API + endpoint, { method: 'POST' });
+            const response = await apiFetch(API + endpoint, { method: 'POST' });
             if (!response.ok) throw new Error(`History action failed: ${response.status}`);
         }
 
@@ -808,14 +1010,20 @@
             const statusEl = document.getElementById('updateStatus');
             if (statusEl) statusEl.textContent = 'Checking...';
             try {
-                const res = await fetch(API + '/api/latest-release');
+                const res = await apiFetch(API + '/api/latest-release');
                 const data = await res.json();
                 if (data.error) {
                     if (statusEl) statusEl.textContent = 'Check failed: ' + data.error;
                     if (statusEl) statusEl.style.color = '#e74c3c';
                 } else {
                     if (statusEl) {
-                        statusEl.innerHTML = `⬆ Update available: <strong>${data.tagName || data.version}</strong> — <a href="${data.htmlUrl}" target="_blank" style="color:#3498db">View on GitHub</a>`;
+                        statusEl.replaceChildren(element('strong', '', 'Update: ' + (data.tagName || data.version)));
+                        const link = element('a', '', 'View on GitHub');
+                        const url = imageUrl(data.htmlUrl);
+                        if (url && new URL(url).hostname === 'github.com') {
+                            link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                            statusEl.append(link);
+                        }
                         statusEl.style.color = '#2ecc71';
                     }
                 }
@@ -832,10 +1040,10 @@
             setTimeout(() => toast.classList.remove('show'), 2000);
         }
 
-        // Init
-        loadView();
+        // Init runs after all lexical state (filters/calendar) is initialized.
+        window.addEventListener('DOMContentLoaded', () => loadView());
             async function showStats() {
-            const res = await fetch(API + '/api/stats');
+            const res = await apiFetch(API + '/api/stats');
             const stats = await res.json();
             alert(`📊 Swipe Statistics\n\n` +
                 `🎬 MOVIES\n` +
@@ -870,31 +1078,38 @@
             h += '<div id="genreChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">';
             genres.forEach(function(g) {
                 var sel = (window._filterGenre || '') === g;
-                h += '<span data-genre="' + g + '" class="filter-chip' + (sel ? ' active' : '') + '" onclick="window._pickGenre(this)">' + g + '</span>';
+                h += '<button type="button" data-genre="' + g + '" class="filter-chip' + (sel ? ' active' : '') + '">' + g + '</button>';
             });
             h += '</div>';
             
             h += '<div style="color:#aaa;font-size:12px;margin-bottom:6px">Year Range</div>';
             h += '<div style="display:flex;gap:8px;margin-bottom:16px">';
-            h += '<input id="fMinYear" type="number" placeholder="Min year" value="' + (window._filterMinYear || '') + '" style="flex:1;background:#2A2A3E;border:1px solid #3A3A4E;color:#fff;padding:8px 12px;border-radius:8px">';
+            h += '<input id="fMinYear" type="number" placeholder="Min year" style="flex:1;background:#2A2A3E;border:1px solid #3A3A4E;color:#fff;padding:8px 12px;border-radius:8px">';
             h += '<span style="color:#555;line-height:36px">to</span>';
-            h += '<input id="fMaxYear" type="number" placeholder="Max year" value="' + (window._filterMaxYear || '') + '" style="flex:1;background:#2A2A3E;border:1px solid #3A3A4E;color:#fff;padding:8px 12px;border-radius:8px">';
+            h += '<input id="fMaxYear" type="number" placeholder="Max year" style="flex:1;background:#2A2A3E;border:1px solid #3A3A4E;color:#fff;padding:8px 12px;border-radius:8px">';
             h += '</div>';
             
             h += '<div style="color:#aaa;font-size:12px;margin-bottom:6px">Minimum Rating</div>';
             h += '<div id="ratingChips" style="display:flex;gap:6px;margin-bottom:20px">';
             ratings.forEach(function(r) {
                 var sel = (window._filterMinRating || 0) === r;
-                h += '<span data-rating="' + r + '" class="filter-chip' + (sel ? ' active' : '') + '" onclick="window._pickRating(this)">' + (r === 0 ? 'Any' : r + '+') + '</span>';
+                h += '<button type="button" data-rating="' + r + '" class="filter-chip' + (sel ? ' active' : '') + '">' + (r === 0 ? 'Any' : r + '+') + '</button>';
             });
             h += '</div>';
             
             h += '<div style="display:flex;justify-content:flex-end;gap:8px">';
-            h += '<button onclick="window._clearFilters()" style="background:none;border:none;color:#aaa;padding:8px 16px;cursor:pointer">Clear All</button>';
-            h += '<button onclick="window._applyFilters()" style="background:#FF6B35;border:none;color:#fff;padding:8px 24px;border-radius:8px;font-weight:bold;cursor:pointer">Apply</button>';
+            h += '<button id="clearFilters" type="button" style="background:none;border:none;color:#aaa;padding:8px 16px;cursor:pointer">Clear All</button>';
+            h += '<button id="applyFilters" type="button" style="background:#FF6B35;border:none;color:#fff;padding:8px 24px;border-radius:8px;font-weight:bold;cursor:pointer">Apply</button>';
             h += '</div></div></div>';
             
             document.body.insertAdjacentHTML('beforeend', h);
+            const overlay = document.getElementById('filterOverlay');
+            overlay.querySelector('#fMinYear').value = window._filterMinYear || '';
+            overlay.querySelector('#fMaxYear').value = window._filterMaxYear || '';
+            overlay.querySelectorAll('[data-genre]').forEach(chip => chip.addEventListener('click', () => window._pickGenre(chip)));
+            overlay.querySelectorAll('[data-rating]').forEach(chip => chip.addEventListener('click', () => window._pickRating(chip)));
+            overlay.querySelector('#clearFilters').addEventListener('click', window._clearFilters);
+            overlay.querySelector('#applyFilters').addEventListener('click', window._applyFilters);
         }
         
         window._filterGenre = '';
@@ -945,31 +1160,25 @@
 
         let calendarDays = 30;
         async function loadCalendar(content) {
-            const res = await fetch(API + '/api/calendar?days=' + calendarDays);
+            const res = await apiFetch(API + '/api/calendar?days=' + calendarDays);
             const data = await res.json();
             const items = data.calendar || [];
             const daysOpts = [{d:7,l:'7 days'},{d:14,l:'2 weeks'},{d:30,l:'1 month'},{d:60,l:'2 months'},{d:90,l:'3 months'}];
-            let h = '<div style="padding:12px"><div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">';
-            daysOpts.forEach(function(o){h += '<span onclick="calendarDays='+o.d+';loadView()" class="filter-chip'+(calendarDays===o.d?' active':'')+'">'+o.l+'</span>';});
-            h += '</div>';
-            if(items.length===0){h += '<div style="text-align:center;padding:40px;color:#aaa">No upcoming releases</div>';}
-            else{
-                h += '<div style="color:#aaa;font-size:12px;margin-bottom:12px">'+items.length+' upcoming releases</div><div class="card-grid">';
-                items.forEach(function(i){
-                    const p=i.posterUrl||'';const e=i.type==='movie'?'🎬':'📺';
-                    const s=i.hasFile?'✅ Downloaded':(i.monitored?'📡 Monitoring':'⏸ Not monitored');
-                    const m=i.type==='movie'?((i.year||'')+' · '+s):((i.episode||'')+(i.episodeTitle?' · '+i.episodeTitle:'')+' · '+s);
-                    h += '<div class="card">';
-                    if(p)h += '<img class="card-poster" src="'+p+'" onerror="this.style.display=\"none\"">';
-                    h += '<div class="card-info"><div class="card-title">'+e+' '+(i.title||'Unknown')+'</div>';
-                    h += '<div class="card-meta"><span>'+m+'</span></div>';
-                    h += '<div style="color:#FF6B35;font-size:11px;margin-top:2px">'+(i.releaseDate||'')+'</div>';
-                    h += '</div></div>';
-                });
-                h += '</div>';
-            }
-            h += '</div>';
-            content.innerHTML = h;
+            content.replaceChildren();
+            const controls = element('div');
+            daysOpts.forEach(o => controls.append(button(o.l, 'filter-chip', () => {calendarDays = o.d; loadView();})));
+            content.append(controls, element('div', '', items.length + ' upcoming releases'));
+            const grid = element('div', 'card-grid');
+            items.forEach(i => {
+                const card = element('div', 'card');
+                card.append(poster(i.posterUrl, i.title, 'card-poster'));
+                const info = element('div', 'card-info');
+                const status = i.hasFile ? 'Downloaded' : i.monitored ? 'Monitoring' : 'Not monitored';
+                info.append(element('div', 'card-title', i.title || 'Unknown'), element('div', 'card-meta', [i.year, i.episode, i.episodeTitle, status].filter(Boolean).join(' · ')), element('div', '', i.releaseDate));
+                card.append(info);
+                grid.append(card);
+            });
+            content.append(grid);
         }
 </script>
 </body>

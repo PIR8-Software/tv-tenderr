@@ -25,18 +25,21 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
+        val secrets = SecretStore.open(this)
         val serverUrl = prefs.getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"
-        api = ApiClient(serverUrl)
+        val apiToken = secrets.getString("api_token", "") ?: ""
+        api = ApiClient(serverUrl, apiToken)
 
-        // Load saved settings
+        // Load saved settings. Secrets come from encrypted storage, never from the backup-eligible file.
         binding.etBackendUrl.setText(serverUrl)
+        binding.etApiToken.setText(apiToken)
         binding.etRadarrUrl.setText(prefs.getString("radarr_url", "http://localhost:7878"))
-        binding.etRadarrKey.setText(prefs.getString("radarr_key", "YOUR_RADARR_API_KEY"))
+        binding.etRadarrKey.setText(secrets.getString("radarr_key", "") ?: "")
         binding.etSonarrUrl.setText(prefs.getString("sonarr_url", "http://localhost:8989"))
-        binding.etSonarrKey.setText(prefs.getString("sonarr_key", "YOUR_SONARR_API_KEY"))
+        binding.etSonarrKey.setText(secrets.getString("sonarr_key", "") ?: "")
         binding.etPlexUrl.setText(prefs.getString("plex_url", "http://localhost:32400"))
-        binding.etPlexToken.setText(prefs.getString("plex_token", "YOUR_PLEX_TOKEN"))
-        binding.etTmdbKey.setText(prefs.getString("tmdb_key", "YOUR_TMDB_KEY"))
+        binding.etPlexToken.setText(secrets.getString("plex_token", "") ?: "")
+        binding.etTmdbKey.setText(secrets.getString("tmdb_key", "") ?: "")
 
         // Load quality/root options from backend
         loadQualityProfiles(serverUrl)
@@ -64,7 +67,7 @@ class SettingsActivity : AppCompatActivity() {
                             binding.tvUpdateStatus.setTextColor(android.graphics.Color.parseColor("#2ecc71"))
                             binding.tvUpdateStatus.setOnClickListener {
                                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(info.htmlUrl ?: "https://github.com/croycrabtree/tv-tenderr/releases/latest"))
+                                    android.net.Uri.parse(info.htmlUrl ?: "https://github.com/PIR8-Software/tv-tenderr/releases/latest"))
                                 startActivity(intent)
                             }
                         } else {
@@ -81,55 +84,91 @@ class SettingsActivity : AppCompatActivity() {
             val editor = prefs.edit()
             editor.putString("server_url", binding.etBackendUrl.text.toString().trim())
             editor.putString("radarr_url", binding.etRadarrUrl.text.toString().trim())
-            editor.putString("radarr_key", binding.etRadarrKey.text.toString().trim())
             editor.putString("sonarr_url", binding.etSonarrUrl.text.toString().trim())
-            editor.putString("sonarr_key", binding.etSonarrKey.text.toString().trim())
             editor.putString("plex_url", binding.etPlexUrl.text.toString().trim())
-            editor.putString("plex_token", binding.etPlexToken.text.toString().trim())
-            editor.putString("tmdb_key", binding.etTmdbKey.text.toString().trim())
+            editor.remove("radarr_key")
+            editor.remove("sonarr_key")
+            editor.remove("plex_token")
+            editor.remove("tmdb_key")
+            editor.remove("api_token")
 
-            // Save quality selections
+            var radarrQualityId: Int? = null
+            var sonarrQualityId: Int? = null
+            var radarrRoot: String? = null
+            var sonarrRoot: String? = null
             val radarrQualityPos = binding.spinnerRadarrQuality.selectedItemPosition
             if (radarrQualityPos >= 0 && radarrQualityPos < radarrProfiles.size) {
-                editor.putInt("radarr_quality_id", radarrProfiles[radarrQualityPos].first)
+                val selectedId = radarrProfiles[radarrQualityPos].first
+                radarrQualityId = selectedId
+                editor.putInt("radarr_quality_id", selectedId)
                 editor.putString("radarr_quality_name", radarrProfiles[radarrQualityPos].second)
             }
 
             val sonarrQualityPos = binding.spinnerSonarrQuality.selectedItemPosition
             if (sonarrQualityPos >= 0 && sonarrQualityPos < sonarrProfiles.size) {
-                editor.putInt("sonarr_quality_id", sonarrProfiles[sonarrQualityPos].first)
+                val selectedId = sonarrProfiles[sonarrQualityPos].first
+                sonarrQualityId = selectedId
+                editor.putInt("sonarr_quality_id", selectedId)
                 editor.putString("sonarr_quality_name", sonarrProfiles[sonarrQualityPos].second)
             }
 
             val radarrRootPos = binding.spinnerRadarrRoot.selectedItemPosition
             if (radarrRootPos >= 0 && radarrRootPos < radarrRoots.size) {
-                editor.putString("radarr_root", radarrRoots[radarrRootPos])
+                radarrRoot = radarrRoots[radarrRootPos]
+                editor.putString("radarr_root", radarrRoot)
             }
 
             val sonarrRootPos = binding.spinnerSonarrRoot.selectedItemPosition
             if (sonarrRootPos >= 0 && sonarrRootPos < sonarrRoots.size) {
-                editor.putString("sonarr_root", sonarrRoots[sonarrRootPos])
+                sonarrRoot = sonarrRoots[sonarrRootPos]
+                editor.putString("sonarr_root", sonarrRoot)
             }
 
             editor.apply()
+            val secretEditor = secrets.edit()
+            configuredSetting(binding.etRadarrKey.text.toString(), "YOUR_RADARR_API_KEY")?.let { secretEditor.putString("radarr_key", it) }
+            configuredSetting(binding.etSonarrKey.text.toString(), "YOUR_SONARR_API_KEY")?.let { secretEditor.putString("sonarr_key", it) }
+            configuredSetting(binding.etPlexToken.text.toString(), "YOUR_PLEX_TOKEN")?.let { secretEditor.putString("plex_token", it) }
+            configuredSetting(binding.etTmdbKey.text.toString(), "YOUR_TMDB_KEY")?.let { secretEditor.putString("tmdb_key", it) }
+            configuredSetting(binding.etApiToken.text.toString(), "")?.let { secretEditor.putString("api_token", it) }
+            secretEditor.apply()
 
-            // Push config to backend
-            val config = mutableMapOf<String, String>()
-            configuredSetting(binding.etRadarrUrl.text.toString(), "http://localhost:7878")?.let { config["radarrUrl"] = it }
-            configuredSetting(binding.etRadarrKey.text.toString(), "YOUR_RADARR_API_KEY")?.let { config["radarrKey"] = it }
-            configuredSetting(binding.etSonarrUrl.text.toString(), "http://localhost:8989")?.let { config["sonarrUrl"] = it }
-            configuredSetting(binding.etSonarrKey.text.toString(), "YOUR_SONARR_API_KEY")?.let { config["sonarrKey"] = it }
-            configuredSetting(binding.etPlexUrl.text.toString(), "http://localhost:32400")?.let { config["plexUrl"] = it }
-            configuredSetting(binding.etPlexToken.text.toString(), "YOUR_PLEX_TOKEN")?.let { config["plexToken"] = it }
-            configuredSetting(binding.etTmdbKey.text.toString(), "YOUR_TMDB_KEY")?.let { config["tmdbKey"] = it }
+            val config = settingsConfigPayload(
+                values = mapOf(
+                    "radarrUrl" to binding.etRadarrUrl.text.toString(),
+                    "radarrKey" to binding.etRadarrKey.text.toString(),
+                    "sonarrUrl" to binding.etSonarrUrl.text.toString(),
+                    "sonarrKey" to binding.etSonarrKey.text.toString(),
+                    "plexUrl" to binding.etPlexUrl.text.toString(),
+                    "plexToken" to binding.etPlexToken.text.toString(),
+                    "tmdbKey" to binding.etTmdbKey.text.toString(),
+                ),
+                defaults = mapOf(
+                    "radarrUrl" to "http://localhost:7878",
+                    "radarrKey" to "YOUR_RADARR_API_KEY",
+                    "sonarrUrl" to "http://localhost:8989",
+                    "sonarrKey" to "YOUR_SONARR_API_KEY",
+                    "plexUrl" to "http://localhost:32400",
+                    "plexToken" to "YOUR_PLEX_TOKEN",
+                    "tmdbKey" to "YOUR_TMDB_KEY",
+                ),
+                radarrQualityId = radarrQualityId,
+                sonarrQualityId = sonarrQualityId,
+                radarrRoot = radarrRoot,
+                sonarrRoot = sonarrRoot,
+            )
+            val token = binding.etApiToken.text.toString().trim().ifEmpty { secrets.getString("api_token", "").orEmpty() }
+            api.setUrl(binding.etBackendUrl.text.toString().trim())
+            api.setToken(token)
 
             val client = OkHttpClient()
             val json = com.google.gson.Gson().toJson(config)
             val body = json.toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url("${binding.etBackendUrl.text.toString().trim()}/api/config")
                 .post(body)
-                .build()
+            if (token.isNotEmpty()) requestBuilder.header("Authorization", "Bearer $token")
+            val request = requestBuilder.build()
 
             client.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
@@ -139,6 +178,7 @@ class SettingsActivity : AppCompatActivity() {
                     val message = settingsSaveMessage(response.isSuccessful)
                     runOnUiThread {
                         binding.tvStatus.text = message
+                        if (response.isSuccessful) loadQualityProfiles(binding.etBackendUrl.text.toString().trim())
                         Toast.makeText(this@SettingsActivity, message, Toast.LENGTH_SHORT).show()
                     }
                     response.close()
@@ -149,10 +189,12 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadQualityProfiles(serverUrl: String) {
         val client = OkHttpClient()
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url("$serverUrl/api/config")
             .get()
-            .build()
+        val token = binding.etApiToken.text.toString().trim()
+        if (token.isNotEmpty()) requestBuilder.header("Authorization", "Bearer $token")
+        val request = requestBuilder.build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}
@@ -178,9 +220,11 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun fetchBackendOptions(serverUrl: String) {
         val client = OkHttpClient()
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url("$serverUrl/api/config/options")
-            .build()
+        val token = binding.etApiToken.text.toString().trim()
+        if (token.isNotEmpty()) requestBuilder.header("Authorization", "Bearer $token")
+        val request = requestBuilder.build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {}

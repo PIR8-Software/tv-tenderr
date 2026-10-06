@@ -92,7 +92,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             "seasons": [],
         }
         client = QueueAsyncClient(
-            [FakeResponse(200, [lookup]), FakeResponse(201, {"id": 77})]
+            [FakeResponse(200, []), FakeResponse(200, [lookup]), FakeResponse(201, {"id": 77})]
         )
         saved = []
 
@@ -107,6 +107,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({}, saved[-1])
         self.assertEqual(
             [
+                ("GET", f"{backend.SONARR_URL}/api/v3/importlistexclusion"),
                 ("GET", f"{backend.SONARR_URL}/api/v3/series/lookup"),
                 ("POST", f"{backend.SONARR_URL}/api/v3/series"),
             ],
@@ -114,9 +115,9 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             {"term": "tvdb:9876"},
-            client.requests[0][2]["params"],
+            client.requests[1][2]["params"],
         )
-        payload = client.requests[1][2]["json"]
+        payload = client.requests[2][2]["json"]
         self.assertEqual(9876, payload["tvdbId"])
         self.assertEqual(backend.SONARR_ROOT_FOLDER, payload["rootFolderPath"])
         self.assertEqual(backend.SONARR_QUALITY_ID, payload["qualityProfileId"])
@@ -171,7 +172,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
         decisions = {"22": {"action": "block", "tmdbId": 12345}}
         lookup = {"title": "Test Movie", "tmdbId": 12345, "images": []}
         client = QueueAsyncClient(
-            [FakeResponse(200, [lookup]), FakeResponse(201, {"id": 66})]
+            [FakeResponse(200, []), FakeResponse(200, [lookup]), FakeResponse(201, {"id": 66})]
         )
         saved = []
         with (
@@ -183,7 +184,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("unblock", result["action"])
         self.assertEqual({}, saved[-1])
-        self.assertEqual(["GET", "POST"], [request[0] for request in client.requests])
+        self.assertEqual(["GET", "GET", "POST"], [request[0] for request in client.requests])
 
 
 class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):

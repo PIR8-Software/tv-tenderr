@@ -49,9 +49,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val serverUrl = getSharedPreferences("movieswipe", MODE_PRIVATE)
-            .getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"
-        api = ApiClient(serverUrl)
+        val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"
+        api = ApiClient(serverUrl, storedApiToken(this))
 
         // Show splash screen
         setContentView(R.layout.activity_splash)
@@ -62,9 +62,36 @@ class MainActivity : AppCompatActivity() {
             setContentView(binding.root)
             setupButtons()
             setupNavigation()
+            updateActionAccessibility()
             loadMovies()
             checkForUpdates()
         }, 2000)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!::api.isInitialized) return
+        val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
+        api.setUrl(prefs.getString("server_url", "http://localhost:8899") ?: "http://localhost:8899")
+        api.setToken(storedApiToken(this))
+        if (::binding.isInitialized) reloadCurrentQueue()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Leaving the screen cancels an uncommitted destructive action.
+        undoRunnable?.let { undoHandler?.removeCallbacks(it) }
+        pendingBlock = null
+        if (::binding.isInitialized) findViewById<View>(R.id.undoBanner).visibility = View.GONE
+    }
+
+    private fun reloadCurrentQueue() {
+        currentIndex = 0
+        when (mode) {
+            "movies" -> loadMovies()
+            "shows" -> loadShows()
+            else -> { discoverPage = 1; loadDiscover() }
+        }
     }
 
     private fun checkForUpdates() {
@@ -167,6 +194,7 @@ class MainActivity : AppCompatActivity() {
                 "discover" -> "Discover"
                 else -> "Movies"
             }
+            updateActionAccessibility()
             binding.tvMode.setTextColor(when (mode) {
                 "discover" -> resources.getColor(android.R.color.holo_orange_light, theme)
                 else -> resources.getColor(android.R.color.holo_green_light, theme)
@@ -345,27 +373,34 @@ class MainActivity : AppCompatActivity() {
         binding.btnFilter.text = if (activeFilters.isEmpty()) "⚙ Filter" else "⚙ ${activeFilters.joinToString(" ")}"
     }
 
+    private fun updateActionAccessibility() {
+        binding.tvMode.contentDescription = "Change mode, current ${binding.tvMode.text}"
+        binding.btnKeep.contentDescription = if (mode == "discover") "Add to library" else "Keep; long press to Super Keep"
+        binding.btnSkip.contentDescription = if (mode == "shows") "Skip; long press to Clean files" else "Skip for now"
+        binding.btnBlock.contentDescription = if (mode == "discover") "Dislike; Undo available for 10 seconds" else "Block and delete; Undo available for 10 seconds"
+    }
+
     private fun setupButtons() {
         binding.btnKeep.setOnClickListener {
             when (mode) {
                 "movies" -> {
                     if (movies.isNotEmpty() && currentIndex < movies.size) {
                         val movie = movies[currentIndex]
-                        animateCardOut(true) { api.keepMovie(movie.id) { _, _ -> }; advanceCard() }
+                        animateCardOut(true) { api.keepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
                     }
                 }
                 "shows" -> {
                     if (shows.isNotEmpty() && currentIndex < shows.size) {
                         val show = shows[currentIndex]
-                        animateCardOut(true) { api.keepShow(show.id) { _, _ -> }; advanceCard() }
+                        animateCardOut(true) { api.keepShow(show.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
                     }
                 }
                 "discover" -> {
                     if (discoverItems.isNotEmpty() && currentIndex < discoverItems.size) {
                         val item = discoverItems[currentIndex]
                         animateCardOut(true) {
-                            if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { _, _ -> }
-                            else api.addShowFromDiscover(item.tmdbId) { _, _ -> }
+                            if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
+                            else api.addShowFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
                             advanceCard()
                         }
                     }
@@ -379,14 +414,14 @@ class MainActivity : AppCompatActivity() {
                 "movies" -> {
                     if (movies.isNotEmpty() && currentIndex < movies.size) {
                         val movie = movies[currentIndex]
-                        animateCardOut(true) { api.superKeepMovie(movie.id) { _, _ -> }; advanceCard() }
+                        animateCardOut(true) { api.superKeepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
                         android.widget.Toast.makeText(this, "⭐ Super Keep: ${movie.title}", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
                 "shows" -> {
                     if (shows.isNotEmpty() && currentIndex < shows.size) {
                         val show = shows[currentIndex]
-                        animateCardOut(true) { api.superKeepShow(show.id) { _, _ -> }; advanceCard() }
+                        animateCardOut(true) { api.superKeepShow(show.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
                         android.widget.Toast.makeText(this, "⭐ Super Keep: ${show.title}", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -395,8 +430,8 @@ class MainActivity : AppCompatActivity() {
                     if (discoverItems.isNotEmpty() && currentIndex < discoverItems.size) {
                         val item = discoverItems[currentIndex]
                         animateCardOut(true) {
-                            if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { _, _ -> }
-                            else api.addShowFromDiscover(item.tmdbId) { _, _ -> }
+                            if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
+                            else api.addShowFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
                             advanceCard()
                         }
                         android.widget.Toast.makeText(this, "⬇️ Added: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
@@ -423,19 +458,19 @@ class MainActivity : AppCompatActivity() {
                 "movies" -> {
                     if (movies.isNotEmpty() && currentIndex < movies.size) {
                         val movie = movies[currentIndex]
-                        api.skipMovie(movie.id) { _, _ -> }; advanceCard()
+                        api.skipMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard()
                     }
                 }
                 "shows" -> {
                     if (shows.isNotEmpty() && currentIndex < shows.size) {
                         val show = shows[currentIndex]
-                        api.skipShow(show.id) { _, _ -> }; advanceCard()
+                        api.skipShow(show.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard()
                     }
                 }
                 "discover" -> {
                     if (discoverItems.isNotEmpty() && currentIndex < discoverItems.size) {
                         val item = discoverItems[currentIndex]
-                        api.hideDiscover(item.tmdbId, item.title, item.year, item.posterUrl, discoverType) { _, _ -> }; advanceCard()
+                        api.hideDiscover(item.tmdbId, item.title, item.year, item.posterUrl, discoverType) { ok, error -> reportActionFailure(ok, error) }; advanceCard()
                     }
                 }
             }
@@ -448,13 +483,13 @@ class MainActivity : AppCompatActivity() {
                 val showIndex = currentIndex
                 animateCardOut(false) {
                     showUndoBanner("\"${show.title}\" files will be removed") {
-                        shows.add(showIndex, show)
                         currentIndex = showIndex
                         showCurrentCard()
                     }
                     pendingBlock = {
-                        api.cleanShow(show.id) { ok, _ ->
-                            runOnUiThread { if (ok) android.widget.Toast.makeText(this, "🧹 Cleaned: ${show.title}", android.widget.Toast.LENGTH_SHORT).show() }
+                        api.cleanShow(show.id) { ok, error ->
+                            reportActionFailure(ok, error)
+                            if (ok) runOnUiThread { android.widget.Toast.makeText(this, "🧹 Cleaned: ${show.title}", android.widget.Toast.LENGTH_SHORT).show() }
                         }
                     }
                     advanceCard()
@@ -469,11 +504,10 @@ class MainActivity : AppCompatActivity() {
         val movieIndex = currentIndex
         animateCardOut(false) {
             showUndoBanner("\"${movie.title}\" will be deleted") {
-                movies.add(movieIndex, movie)
                 currentIndex = movieIndex
                 showCurrentCard()
             }
-            pendingBlock = { api.blockMovie(movie.id) { _, _ -> } }
+            pendingBlock = { api.blockMovie(movie.id) { ok, error -> reportActionFailure(ok, error) } }
             advanceCard()
         }
     }
@@ -483,11 +517,10 @@ class MainActivity : AppCompatActivity() {
         val showIndex = currentIndex
         animateCardOut(false) {
             showUndoBanner("\"${show.title}\" will be deleted") {
-                shows.add(showIndex, show)
                 currentIndex = showIndex
                 showCurrentCard()
             }
-            pendingBlock = { api.blockShow(show.id) { _, _ -> } }
+            pendingBlock = { api.blockShow(show.id) { ok, error -> reportActionFailure(ok, error) } }
             advanceCard()
         }
     }
@@ -498,12 +531,11 @@ class MainActivity : AppCompatActivity() {
         val itemType = discoverType
         animateCardOut(false) {
             showUndoBanner("\"${item.title}\" will be added to Import List Exclusions") {
-                discoverItems.add(itemIndex, item)
                 currentIndex = itemIndex
                 showCurrentCard()
             }
             pendingBlock = {
-                api.dislikeDiscover(item.tmdbId, item.title, item.year, item.posterUrl, itemType) { _, _ -> }
+                api.dislikeDiscover(item.tmdbId, item.title, item.year, item.posterUrl, itemType) { ok, error -> reportActionFailure(ok, error) }
             }
             advanceCard()
         }
@@ -512,6 +544,14 @@ class MainActivity : AppCompatActivity() {
     private var undoHandler: android.os.Handler? = null
     private var undoRunnable: Runnable? = null
     private var pendingBlock: (() -> Unit)? = null
+
+    private fun reportActionFailure(ok: Boolean, error: String?) {
+        if (ok) return
+        runOnUiThread {
+            Toast.makeText(this, error ?: "Action failed", Toast.LENGTH_LONG).show()
+            reloadCurrentQueue()
+        }
+    }
 
     private fun showUndoBanner(message: String, onUndo: () -> Unit) {
         val banner = findViewById<LinearLayout>(R.id.undoBanner)
@@ -531,7 +571,7 @@ class MainActivity : AppCompatActivity() {
         }
         banner.visibility = View.VISIBLE
 
-        // After 8 seconds, execute the block and hide banner
+        // After 10 seconds, execute the destructive action and hide the banner.
         undoHandler = android.os.Handler(mainLooper)
         undoRunnable = Runnable {
             banner.visibility = View.GONE
@@ -749,7 +789,7 @@ class MainActivity : AppCompatActivity() {
                         val goRight = currentX > 0
                         if (goRight) {
                             animateCardOut(true) {
-                                api.keepMovie(movie.id) { _, _ -> }
+                                api.keepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }
                                 advanceCard()
                             }
                         } else {
@@ -758,13 +798,13 @@ class MainActivity : AppCompatActivity() {
                     } else if (currentY > threshold && abs(currentY) > abs(currentX)) {
                         // Swipe down = super keep
                         animateCardDown {
-                            api.superKeepMovie(movie.id) { _, _ -> }
+                            api.superKeepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }
                             advanceCard()
                         }
                     } else if (currentY < -threshold && abs(currentY) > abs(currentX)) {
                         // Swipe up = skip
                         animateCardUp {
-                            api.skipMovie(movie.id) { _, _ -> }
+                            api.skipMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }
                             advanceCard()
                         }
                     } else {
@@ -923,7 +963,7 @@ class MainActivity : AppCompatActivity() {
                         val goRight = currentX > 0
                         if (goRight) {
                             animateCardOut(true) {
-                                api.keepShow(show.id) { _, _ -> }
+                                api.keepShow(show.id) { ok, error -> reportActionFailure(ok, error) }
                                 advanceCard()
                             }
                         } else {
@@ -931,12 +971,12 @@ class MainActivity : AppCompatActivity() {
                         }
                     } else if (currentY > threshold && abs(currentY) > abs(currentX)) {
                         animateCardDown {
-                            api.superKeepShow(show.id) { _, _ -> }
+                            api.superKeepShow(show.id) { ok, error -> reportActionFailure(ok, error) }
                             advanceCard()
                         }
                     } else if (currentY < -threshold && abs(currentY) > abs(currentX)) {
                         animateCardUp {
-                            api.skipShow(show.id) { _, _ -> }
+                            api.skipShow(show.id) { ok, error -> reportActionFailure(ok, error) }
                             advanceCard()
                         }
                     } else {
@@ -1169,8 +1209,8 @@ class MainActivity : AppCompatActivity() {
                         val goRight = currentX > 0
                         if (goRight) {
                             animateCardOut(true) {
-                                if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { _, _ -> }
-                                else api.addShowFromDiscover(item.tmdbId) { _, _ -> }
+                                if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
+                                else api.addShowFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
                                 advanceCard()
                             }
                         } else {

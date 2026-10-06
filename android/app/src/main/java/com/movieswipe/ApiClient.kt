@@ -7,20 +7,30 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class ApiClient(private var baseUrl: String) {
+class ApiClient(private var baseUrl: String, private var apiToken: String = "") {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            val token = apiToken.trim()
+            val request = if (token.isEmpty()) {
+                chain.request()
+            } else {
+                chain.request().newBuilder().header("Authorization", "Bearer $token").build()
+            }
+            chain.proceed(request)
+        }
         .build()
     private val gson = Gson()
 
     fun setUrl(url: String) { baseUrl = url }
+    fun setToken(token: String) { apiToken = token }
     fun getBaseUrl(): String = baseUrl
 
     fun refreshPlex(callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/plex/refresh")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -39,7 +49,7 @@ class ApiClient(private var baseUrl: String) {
         val request = Request.Builder()
             .url(buildString {
                 append("$baseUrl/api/movies?skip=$skip&limit=$limit")
-                if (genre.isNotBlank()) append("&genre=$genre")
+                if (genre.isNotBlank()) append("&genre=${java.net.URLEncoder.encode(genre, "UTF-8")}")
                 if (minYear > 0) append("&min_year=$minYear")
                 if (maxYear > 0) append("&max_year=$maxYear")
                 if (minRating > 0f) append("&min_rating=$minRating")
@@ -85,7 +95,7 @@ class ApiClient(private var baseUrl: String) {
     private fun postAction(movieId: Int, action: String, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/movies/$movieId/$action")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -217,7 +227,7 @@ class ApiClient(private var baseUrl: String) {
     fun postShowAction(showId: Int, action: String, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/shows/$showId/$action")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -302,7 +312,8 @@ class ApiClient(private var baseUrl: String) {
     }
 
     fun discoverMovies(page: Int = 1, limit: Int = 20, providers: String = "", sortBy: String = "popularity.desc", callback: (DiscoverMoviesResponse?, String?) -> Unit) {
-        val url = "$baseUrl/api/discover/movies?page=$page&limit=$limit&sort_by=$sortBy" + if (providers.isNotEmpty()) "&providers=$providers" else ""
+        val providersQuery = if (providers.isNotEmpty()) "&providers=${java.net.URLEncoder.encode(providers, "UTF-8")}" else ""
+        val url = "$baseUrl/api/discover/movies?page=$page&limit=$limit&sort_by=${java.net.URLEncoder.encode(sortBy, "UTF-8")}$providersQuery"
         val request = Request.Builder().url(url).get().build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -319,7 +330,8 @@ class ApiClient(private var baseUrl: String) {
     }
 
     fun discoverShows(page: Int = 1, limit: Int = 20, providers: String = "", sortBy: String = "popularity.desc", callback: (DiscoverShowsResponse?, String?) -> Unit) {
-        val url = "$baseUrl/api/discover/shows?page=$page&limit=$limit&sort_by=$sortBy" + if (providers.isNotEmpty()) "&providers=$providers" else ""
+        val providersQuery = if (providers.isNotEmpty()) "&providers=${java.net.URLEncoder.encode(providers, "UTF-8")}" else ""
+        val url = "$baseUrl/api/discover/shows?page=$page&limit=$limit&sort_by=${java.net.URLEncoder.encode(sortBy, "UTF-8")}$providersQuery"
         val request = Request.Builder().url(url).get().build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -382,7 +394,7 @@ class ApiClient(private var baseUrl: String) {
     fun addMovieFromDiscover(tmdbId: Int, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/discover/$tmdbId/add_movie")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -396,7 +408,7 @@ class ApiClient(private var baseUrl: String) {
     fun addShowFromDiscover(tmdbId: Int, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/discover/$tmdbId/add_show")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -429,7 +441,7 @@ class ApiClient(private var baseUrl: String) {
     fun unhideDiscover(tmdbId: Int, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/discover/$tmdbId/unhide")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -443,7 +455,7 @@ class ApiClient(private var baseUrl: String) {
     fun removeMovieFromDiscover(tmdbId: Int, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/discover/$tmdbId/remove_movie")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -457,7 +469,7 @@ class ApiClient(private var baseUrl: String) {
     fun removeShowFromDiscover(tmdbId: Int, callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
             .url("$baseUrl/api/discover/$tmdbId/remove_show")
-            .post(RequestBody.create(null, ByteArray(0)))
+            .post(ByteArray(0).toRequestBody(null))
             .build()
 
         client.newCall(request).enqueue(object : Callback {

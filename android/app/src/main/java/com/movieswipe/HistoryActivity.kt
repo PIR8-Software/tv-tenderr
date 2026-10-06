@@ -32,7 +32,7 @@ class HistoryActivity : AppCompatActivity() {
 
         val serverUrl = getSharedPreferences("movieswipe", MODE_PRIVATE)
             .getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"
-        api = ApiClient(serverUrl)
+        api = ApiClient(serverUrl, storedApiToken(this))
 
         historyMode = intent.getStringExtra("mode") ?: "movies"
 
@@ -105,6 +105,17 @@ class HistoryActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyHistoryResult(ok: Boolean, error: String?, item: HistoryItem) {
+        runOnUiThread {
+            if (ok) {
+                allItems.removeAll { it.movieId == item.movieId }
+                refreshList()
+            } else {
+                android.widget.Toast.makeText(this, error ?: "History action failed", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun refreshList() {
         var filtered = if (currentFilter == "all" || historyMode == "discover") allItems.toList()
             else allItems.filter { it.action == currentFilter }
@@ -120,25 +131,17 @@ class HistoryActivity : AppCompatActivity() {
             onUnkeep = { item ->
                 when (historyMode) {
                     "movies" -> {
-                        api.unkeepMovie(item.movieId) { ok, _ ->
-                            if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                        }
+                        api.unkeepMovie(item.movieId) { ok, error -> applyHistoryResult(ok, error, item) }
                     }
                     "shows" -> {
-                        api.postShowAction(item.movieId, "unkeep") { ok, _ ->
-                            if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                        }
+                        api.postShowAction(item.movieId, "unkeep") { ok, error -> applyHistoryResult(ok, error, item) }
                     }
                     "discover" -> {
                         // "Added" items: remove from Radarr/Sonarr
                         if (item.type == "show") {
-                            api.removeShowFromDiscover(item.movieId) { ok, _ ->
-                                if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                            }
+                            api.removeShowFromDiscover(item.movieId) { ok, error -> applyHistoryResult(ok, error, item) }
                         } else {
-                            api.removeMovieFromDiscover(item.movieId) { ok, _ ->
-                                if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                            }
+                            api.removeMovieFromDiscover(item.movieId) { ok, error -> applyHistoryResult(ok, error, item) }
                         }
                     }
                 }
@@ -146,28 +149,20 @@ class HistoryActivity : AppCompatActivity() {
             onUnblock = { item ->
                 when (historyMode) {
                     "movies" -> {
-                        api.unblockMovie(item.movieId) { ok, _ ->
-                            if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                        }
+                        api.unblockMovie(item.movieId) { ok, error -> applyHistoryResult(ok, error, item) }
                     }
                     "shows" -> {
-                        api.postShowAction(item.movieId, "unblock") { ok, _ ->
-                            if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                        }
+                        api.postShowAction(item.movieId, "unblock") { ok, error -> applyHistoryResult(ok, error, item) }
                     }
                     "discover" -> {
                         // "Hidden" items: unhide (show in discover again)
-                        api.unhideDiscover(item.movieId) { ok, _ ->
-                            if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                        }
+                        api.unhideDiscover(item.movieId) { ok, error -> applyHistoryResult(ok, error, item) }
                     }
                 }
             },
             onUnclean = { item ->
                 if (historyMode == "shows") {
-                    api.uncleanShow(item.movieId) { ok, _ ->
-                        if (ok) runOnUiThread { allItems.removeAll { it.movieId == item.movieId }; refreshList() }
-                    }
+                    api.uncleanShow(item.movieId) { ok, error -> applyHistoryResult(ok, error, item) }
                 }
             }
         )

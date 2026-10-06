@@ -17,8 +17,7 @@ class WebHistoryTests(unittest.TestCase):
             "/api/shows/${id}/unclean",
             "/api/discover/${tmdbId}/${endpoint}",
             "/api/discover/${tmdbId}/unhide",
-            "item.action === 'clean'",
-            "onclick=\"unclean(${item.movieId})\"",
+            "clean: ['Re-monitor', () => unclean(item.movieId)]",
         )
         for fragment in expected_fragments:
             self.assertIn(fragment, html)

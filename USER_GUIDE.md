@@ -1,5 +1,9 @@
 # TV Tenderr - User Guide
 
+## Upgrading to 1.3.4
+
+Read [Security and upgrade notes](SECURITY.md) first. Configured backends require `TV_TENDERR_API_TOKEN`; use an explicit private bind and protected transport. Web Settings → Connect logs in only this browser session (`sessionStorage`), not every new tab or browser restart. Android has a masked API token field and encrypted credential migration. Preserve existing settings and decision data; do not uninstall to upgrade.
+
 ## Overview
 TV Tenderr is a Tinder-style media library manager for Plex, Radarr, and Sonarr. Swipe through your movies and TV shows to keep, block, or clean up your collection. Discover new content from all streaming services.
 
@@ -188,7 +192,7 @@ Same settings as the Android app:
 
 ### Quick Start
 ```bash
-git clone https://github.com/croycrabtree/tv-tenderr.git
+git clone https://github.com/PIR8-Software/tv-tenderr.git
 cd tv-tenderr
 ./setup.sh
 # Edit .env with your credentials

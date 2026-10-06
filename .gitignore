@@ -12,6 +12,7 @@ android/.gradle/
 android/build/
 android/local.properties
 venv/
+.venv/
 __pycache__/
 *.pyc
 data/decisions.json

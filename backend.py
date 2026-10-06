@@ -1,21 +1,74 @@
 """TV Tenderr - Backend API
 Connects to Radarr + Sonarr + Plex to serve movies/shows for the swipe interface.
 """
-import os
+import asyncio
+import hmac
 import json
+import os
 import random
-import httpx
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
-from fastapi.staticfiles import StaticFiles
+import urllib.parse
+from datetime import datetime, timedelta
 from pathlib import Path
-from datetime import datetime
-from dotenv import load_dotenv
 
-# Load .env file if it exists
-load_dotenv(Path(__file__).parent / ".env")
+import httpx
+from dotenv import load_dotenv, dotenv_values
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="TV Tenderr")
+# Load .env file if it exists. Tests patch ENV_FILE before any config write.
+ENV_FILE = Path(__file__).parent / ".env"
+load_dotenv(ENV_FILE, interpolate=False)
+
+API_TOKEN_ENV = "TV_TENDERR_API_TOKEN"
+LEGACY_DATA_DIR = Path("/home/roy/projects/movie-swipe/data")
+POSTER_HOSTS = {"image.tmdb.org"}
+PRESERVED_ACTIONS = {"keep", "super_keep", "block", "clean"}
+LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
+decision_lock = asyncio.Lock()
+
+
+def configured_api_token():
+    return os.getenv(API_TOKEN_ENV, "").strip()
+
+
+def resolve_bind_host():
+    explicit = os.getenv("BACKEND_HOST", "").strip()
+    if explicit:
+        return explicit
+    if configured_api_token():
+        return "0.0.0.0"
+    return "127.0.0.1"
+
+
+def resolve_bind_port():
+    raw = os.getenv("BACKEND_PORT", "8899").strip() or "8899"
+    try:
+        return int(raw)
+    except ValueError:
+        return 8899
+
+
+def history_year(value):
+    """Return a history year as an int, or None. Mixed string/int payloads are normalized, not rejected."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if 1800 <= value <= 2200 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        year = int(text)
+        return year if 1800 <= year <= 2200 else None
+    head = text[:4]
+    if len(head) == 4 and head.isdigit() and not text[4:5].isdigit():
+        year = int(head)
+        return year if 1800 <= year <= 2200 else None
+    return None
+
+
+app = FastAPI(title="TV Tenderr", docs_url=None, redoc_url=None, openapi_url=None)
 
 # Serve web UI
 WEB_DIR = Path(__file__).parent / "web"
@@ -37,15 +90,23 @@ SONARR_KEY = os.getenv("SONARR_KEY", "")
 PLEX_URL = os.getenv("PLEX_URL", "http://localhost:32400")
 PLEX_TOKEN = os.getenv("PLEX_TOKEN", "")
 
-DATA_DIR = Path("/home/roy/projects/movie-swipe/data")
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+def skip_revisit_hours():
+    """Skip means decide later. The window is explicit and not a permanent exclusion."""
+    raw = os.getenv("SKIP_REVISIT_HOURS", "24").strip() or "24"
+    try:
+        hours = int(raw)
+    except ValueError:
+        hours = 24
+    return max(1, hours)
+
 
 def is_decision_active(info):
     """Check if a decision is still active (not expired)."""
     action = info.get("action")
-    if action == "block":
-        return True
-    if action == "super_keep":
+    if action in ("block", "super_keep", "clean"):
         return True
     if action == "keep":
         # Regular keeps expire after 6 months
@@ -56,33 +117,74 @@ def is_decision_active(info):
             expires = decided + relativedelta(months=6)
             return datetime.now() < expires
         return True
+    if action == "skip":
+        timestamp = info.get("timestamp")
+        if not timestamp:
+            return False
+        decided = datetime.fromisoformat(timestamp)
+        return datetime.now() < decided + timedelta(hours=skip_revisit_hours())
     return False
 
 DECISIONS_FILE = DATA_DIR / "decisions.json"
 SHOW_DECISIONS_FILE = DATA_DIR / "show_decisions.json"
 
+def load_json_store(path):
+    """Load a decision file. A corrupt file fails closed and is never treated as empty."""
+    if not path.exists():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"Decision store unreadable: {path.name}") from exc
+    if not text.strip():
+        raise HTTPException(status_code=503, detail=f"Decision store corrupt: {path.name}")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=503, detail=f"Decision store corrupt: {path.name}") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=503, detail=f"Decision store corrupt: {path.name}")
+    return data
+
+
+def save_json_store(path, data):
+    """Atomically replace a valid store. Refuse to overwrite a corrupt file."""
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=500, detail="Decision store must be an object")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        load_json_store(path)
+    payload = json.dumps(data, indent=2)
+    tmp = path.with_name(f".{path.name}.tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
 def load_decisions():
-    if DECISIONS_FILE.exists():
-        return json.loads(DECISIONS_FILE.read_text())
-    return {}
+    return load_json_store(DECISIONS_FILE)
 
 def save_decisions(decisions):
-    DECISIONS_FILE.write_text(json.dumps(decisions, indent=2))
+    save_json_store(DECISIONS_FILE, decisions)
 
 def load_show_decisions():
-    if SHOW_DECISIONS_FILE.exists():
-        return json.loads(SHOW_DECISIONS_FILE.read_text())
-    return {}
+    return load_json_store(SHOW_DECISIONS_FILE)
 
 def save_show_decisions(decisions):
-    SHOW_DECISIONS_FILE.write_text(json.dumps(decisions, indent=2))
+    save_json_store(SHOW_DECISIONS_FILE, decisions)
 
 def get_plex_sections():
     """Get Plex library sections to find the movies library."""
     if not PLEX_TOKEN:
         return None
     try:
-        r = httpx.get(f"{PLEX_URL}/library/sections", params={"X-Plex-Token": PLEX_TOKEN}, timeout=10)
+        r = httpx.get(
+            f"{PLEX_URL}/library/sections",
+            headers={"X-Plex-Token": PLEX_TOKEN, "Accept": "application/xml"},
+            timeout=10,
+        )
         r.raise_for_status()
         import xml.etree.ElementTree as ET
         root = ET.fromstring(r.text)
@@ -99,7 +201,11 @@ def get_plex_watched_titles(section_type="movie"):
         return set()
     try:
         # Get the section key for this type
-        r = httpx.get(f"{PLEX_URL}/library/sections", params={"X-Plex-Token": PLEX_TOKEN}, timeout=10)
+        r = httpx.get(
+            f"{PLEX_URL}/library/sections",
+            headers={"X-Plex-Token": PLEX_TOKEN, "Accept": "application/xml"},
+            timeout=10,
+        )
         import xml.etree.ElementTree as ET
         root = ET.fromstring(r.text)
         section_key = None
@@ -113,8 +219,9 @@ def get_plex_watched_titles(section_type="movie"):
         # Get all items with watched status
         r = httpx.get(
             f"{PLEX_URL}/library/sections/{section_key}/all",
-            params={"X-Plex-Token": PLEX_TOKEN, "type": "1" if section_type == "movie" else "2"},
-            timeout=60
+            headers={"X-Plex-Token": PLEX_TOKEN, "Accept": "application/xml"},
+            params={"type": "1" if section_type == "movie" else "2"},
+            timeout=60,
         )
         r.raise_for_status()
         root = ET.fromstring(r.text)
@@ -137,8 +244,9 @@ def get_plex_watch_history(section_key):
     try:
         r = httpx.get(
             f"{PLEX_URL}/library/sections/{section_key}/all",
-            params={"X-Plex-Token": PLEX_TOKEN, "type": "1", "viewCount": ">>0"},
-            timeout=30
+            headers={"X-Plex-Token": PLEX_TOKEN, "Accept": "application/xml"},
+            params={"type": "1", "viewCount": ">>0"},
+            timeout=30,
         )
         r.raise_for_status()
         import xml.etree.ElementTree as ET
@@ -351,15 +459,17 @@ async def block_movie(movie_id: int):
             headers={"X-Api-Key": RADARR_KEY},
             timeout=15
         )
-        movie_info = {}
-        if r.status_code == 200:
-            m = r.json()
-            movie_info = {
-                "title": m.get("title"),
-                "year": m.get("year"),
-                "tmdbId": m.get("tmdbId"),
-                "posterUrl": get_poster_url(m),
-            }
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail="Failed to get movie before block")
+        m = r.json()
+        if not m.get("tmdbId"):
+            raise HTTPException(status_code=502, detail="Movie has no TMDb ID for restore; block cancelled")
+        movie_info = {
+            "title": m.get("title"),
+            "year": m.get("year"),
+            "tmdbId": m["tmdbId"],
+            "posterUrl": get_poster_url(m),
+        }
         
         # Delete from Radarr (deleteFiles=true removes the actual files)
         r = await client.delete(
@@ -381,14 +491,17 @@ async def block_movie(movie_id: int):
 
 @app.post("/api/movies/{movie_id}/skip")
 async def skip_movie(movie_id: int):
-    """Skip - decide later."""
+    """Skip - decide later. Never overwrite an existing keep, block, or clean."""
     decisions = load_decisions()
+    existing = decisions.get(str(movie_id))
+    if existing and existing.get("action") in PRESERVED_ACTIONS:
+        return {"ok": True, "action": existing.get("action"), "preserved": True}
     decisions[str(movie_id)] = {
         "action": "skip",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
     save_decisions(decisions)
-    return {"ok": True, "action": "skip"}
+    return {"ok": True, "action": "skip", "preserved": False}
 
 @app.get("/api/stats")
 async def get_stats():
@@ -561,7 +674,7 @@ async def get_history():
             "action": info.get("action"),
             "timestamp": info.get("timestamp"),
             "title": title,
-            "year": year,
+            "year": history_year(year),
             "tmdbId": info.get("tmdbId"),
             "posterUrl": poster,
         })
@@ -596,6 +709,23 @@ async def unblock_movie(movie_id: int):
         raise HTTPException(status_code=400, detail="No tmdbId stored - cannot re-add")
     
     async with httpx.AsyncClient() as client:
+        exclusions = await client.get(
+            f"{RADARR_URL}/api/v3/exclusions",
+            headers={"X-Api-Key": RADARR_KEY},
+            timeout=30,
+        )
+        if exclusions.status_code != 200:
+            raise HTTPException(status_code=exclusions.status_code, detail="Radarr exclusion lookup failed")
+        match = next((item for item in exclusions.json() if str(item.get("tmdbId")) == str(tmdb_id)), None)
+        if match:
+            removed = await client.delete(
+                f"{RADARR_URL}/api/v3/exclusions/{match['id']}",
+                headers={"X-Api-Key": RADARR_KEY},
+                timeout=30,
+            )
+            if removed.status_code not in (200, 202, 204, 404):
+                raise HTTPException(status_code=removed.status_code, detail="Radarr exclusion removal failed")
+
         # Look up the movie on Radarr by tmdbId
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/lookup",
@@ -612,8 +742,8 @@ async def unblock_movie(movie_id: int):
         add_payload = {
             "title": movie_data["title"],
             "tmdbId": tmdb_id,
-            "qualityProfileId": movie_data.get("qualityProfileId") or 4,
-            "rootFolderPath": "H:\\",
+            "qualityProfileId": RADARR_QUALITY_ID,
+            "rootFolderPath": RADARR_ROOT_FOLDER,
             "monitored": True,
             "addOptions": {"searchForMovie": False},
             "images": movie_data.get("images", []),
@@ -633,33 +763,6 @@ async def unblock_movie(movie_id: int):
     save_decisions(decisions)
     return {"ok": True, "action": "unblock", "title": movie_data["title"]}
 
-@app.get("/api/stats")
-async def get_stats():
-    """Get summary stats."""
-    decisions = load_decisions()
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            f"{RADARR_URL}/api/v3/movie",
-            headers={"X-Api-Key": RADARR_KEY},
-            timeout=30
-        )
-        r.raise_for_status()
-        movies = r.json()
-    
-    kept = sum(1 for d in decisions.values() if d.get("action") == "keep")
-    blocked = sum(1 for d in decisions.values() if d.get("action") == "block")
-    skipped = sum(1 for d in decisions.values() if d.get("action") == "skip")
-    decided = kept + blocked + skipped
-    
-    return {
-        "totalMovies": len(movies),
-        "kept": kept,
-        "blocked": blocked,
-        "skipped": skipped,
-        "undecided": len(movies) - decided,
-        "decisions": decisions
-    }
-
 @app.get("/api/blocklist")
 async def get_blocklist():
     """Get current Radarr blocklist."""
@@ -674,6 +777,20 @@ async def get_blocklist():
     
     items = data.get("records", data) if isinstance(data, dict) else data
     return {"blocklist": items, "count": len(items)}
+
+def poster_request(poster_path):
+    """Attach the Arr key only to a relative Radarr media path. Never follow redirects with it."""
+    if poster_path.startswith("/"):
+        return {
+            "url": f"{RADARR_URL}{poster_path}",
+            "headers": {"X-Api-Key": RADARR_KEY},
+        }
+    parsed = urllib.parse.urlparse(poster_path)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in POSTER_HOSTS:
+        raise HTTPException(status_code=400, detail="Poster URL host is not allowed")
+    return {"url": poster_path, "headers": {}}
+
 
 @app.get("/api/poster/{movie_id}")
 async def get_poster(movie_id: int):
@@ -690,14 +807,19 @@ async def get_poster(movie_id: int):
     poster_path = get_poster_url(movie)
     if not poster_path:
         raise HTTPException(status_code=404, detail="No poster")
-    
-    # Radarr returns relative paths like /MediaCover/7/poster.jpg
-    full_url = f"{RADARR_URL}{poster_path}" if poster_path.startswith("/") else poster_path
-    
+
+    planned = poster_request(poster_path)
     async with httpx.AsyncClient() as client:
-        r = await client.get(full_url, headers={"X-Api-Key": RADARR_KEY}, timeout=15)
+        r = await client.get(
+            planned["url"],
+            headers=planned["headers"],
+            timeout=15,
+            follow_redirects=False,
+        )
+        if r.status_code in (301, 302, 303, 307, 308):
+            raise HTTPException(status_code=502, detail="Poster redirect was not followed")
         r.raise_for_status()
-    
+
     return Response(content=r.content, media_type="image/jpeg")
 
 @app.get("/api/config")
@@ -711,6 +833,11 @@ async def get_config():
         "hasSonarrKey": bool(SONARR_KEY),
         "hasPlexToken": bool(PLEX_TOKEN),
         "hasTmdbKey": bool(TMDB_KEY),
+        "hasApiToken": bool(configured_api_token()),
+        "radarrQualityId": RADARR_QUALITY_ID,
+        "sonarrQualityId": SONARR_QUALITY_ID,
+        "radarrRootFolder": RADARR_ROOT_FOLDER,
+        "sonarrRootFolder": SONARR_ROOT_FOLDER,
     }
 
 
@@ -753,7 +880,7 @@ async def get_latest_release():
     async with httpx.AsyncClient() as client:
         try:
             r = await client.get(
-                "https://api.github.com/repos/croycrabtree/tv-tenderr/releases/latest",
+                "https://api.github.com/repos/PIR8-Software/tv-tenderr/releases/latest",
                 headers={"Accept": "application/vnd.github.v3+json"},
                 timeout=10
             )
@@ -767,7 +894,7 @@ async def get_latest_release():
                     "body": data.get("body", ""),
                     "htmlUrl": data.get("html_url"),
                     "publishedAt": data.get("published_at"),
-                    "downloadUrl": f"https://github.com/croycrabtree/tv-tenderr/releases/latest/download/app-release.apk",
+                    "downloadUrl": f"https://github.com/PIR8-Software/tv-tenderr/releases/latest/download/app-release.apk",
                 }
             else:
                 return {"error": f"GitHub API returned {r.status_code}"}
@@ -776,32 +903,10 @@ async def get_latest_release():
 
 @app.post("/api/config")
 async def update_config(config: dict):
-    """Update configuration."""
-    global RADARR_URL, RADARR_KEY, SONARR_URL, SONARR_KEY, PLEX_URL, PLEX_TOKEN
-    global RADARR_QUALITY_ID, SONARR_QUALITY_ID, RADARR_ROOT_FOLDER, SONARR_ROOT_FOLDER, TMDB_KEY
-    if "radarrUrl" in config and config["radarrUrl"]:
-        RADARR_URL = config["radarrUrl"]
-    if "radarrKey" in config and config["radarrKey"]:
-        RADARR_KEY = config["radarrKey"]
-    if "sonarrUrl" in config and config["sonarrUrl"]:
-        SONARR_URL = config["sonarrUrl"]
-    if "sonarrKey" in config and config["sonarrKey"]:
-        SONARR_KEY = config["sonarrKey"]
-    if "plexUrl" in config and config["plexUrl"]:
-        PLEX_URL = config["plexUrl"]
-    if "plexToken" in config and config["plexToken"]:
-        PLEX_TOKEN = config["plexToken"]
-    if "radarrQualityId" in config:
-        RADARR_QUALITY_ID = int(config["radarrQualityId"])
-    if "sonarrQualityId" in config:
-        SONARR_QUALITY_ID = int(config["sonarrQualityId"])
-    if "radarrRootFolder" in config:
-        RADARR_ROOT_FOLDER = config["radarrRootFolder"]
-    if "sonarrRootFolder" in config:
-        SONARR_ROOT_FOLDER = config["sonarrRootFolder"]
-    if "tmdbKey" in config and config["tmdbKey"]:
-        TMDB_KEY = config["tmdbKey"]
-    return {"ok": True}
+    """Update memory and atomically persist non-empty settings. Never mint a token."""
+    if not configured_api_token() and not str(config.get("apiToken") or "").strip():
+        raise HTTPException(status_code=400, detail="First-run setup requires a new API token")
+    return persist_config(config)
 
 # ==================== SONARR SHOW ENDPOINTS ====================
 
@@ -974,20 +1079,22 @@ async def block_show(show_id: int):
             headers={"X-Api-Key": SONARR_KEY},
             timeout=15
         )
-        show_info = {}
-        if r.status_code == 200:
-            s = r.json()
-            poster_url = None
-            for img in s.get("images", []):
-                if img.get("coverType") == "poster":
-                    poster_url = img.get("remoteUrl") or img.get("url")
-                    break
-            show_info = {
-                "title": s.get("title"),
-                "year": s.get("year"),
-                "tvdbId": s.get("tvdbId"),
-                "posterUrl": poster_url,
-            }
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail="Failed to get series before block")
+        s = r.json()
+        if not s.get("tvdbId"):
+            raise HTTPException(status_code=502, detail="Show has no TVDb ID for restore; block cancelled")
+        poster_url = None
+        for img in s.get("images", []):
+            if img.get("coverType") == "poster":
+                poster_url = img.get("remoteUrl") or img.get("url")
+                break
+        show_info = {
+            "title": s.get("title"),
+            "year": s.get("year"),
+            "tvdbId": s["tvdbId"],
+            "posterUrl": poster_url,
+        }
 
         # Delete from Sonarr
         r = await client.delete(
@@ -1010,14 +1117,17 @@ async def block_show(show_id: int):
 
 @app.post("/api/shows/{show_id}/skip")
 async def skip_show(show_id: int):
-    """Skip a show - decide later."""
+    """Skip a show - decide later. Never overwrite an existing preference."""
     decisions = load_show_decisions()
+    existing = decisions.get(str(show_id))
+    if existing and existing.get("action") in PRESERVED_ACTIONS:
+        return {"ok": True, "action": existing.get("action"), "preserved": True}
     decisions[str(show_id)] = {
         "action": "skip",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
     save_show_decisions(decisions)
-    return {"ok": True, "action": "skip"}
+    return {"ok": True, "action": "skip", "preserved": False}
 
 
 @app.post("/api/shows/{show_id}/unkeep")
@@ -1044,6 +1154,23 @@ async def unblock_show(show_id: int):
         raise HTTPException(status_code=400, detail="No tvdbId stored - cannot re-add")
 
     async with httpx.AsyncClient() as client:
+        exclusions = await client.get(
+            f"{SONARR_URL}/api/v3/importlistexclusion",
+            headers={"X-Api-Key": SONARR_KEY},
+            timeout=30,
+        )
+        if exclusions.status_code != 200:
+            raise HTTPException(status_code=exclusions.status_code, detail="Sonarr exclusion lookup failed")
+        match = next((item for item in exclusions.json() if str(item.get("tvdbId")) == str(tvdb_id)), None)
+        if match:
+            removed = await client.delete(
+                f"{SONARR_URL}/api/v3/importlistexclusion/{match['id']}",
+                headers={"X-Api-Key": SONARR_KEY},
+                timeout=30,
+            )
+            if removed.status_code not in (200, 202, 204, 404):
+                raise HTTPException(status_code=removed.status_code, detail="Sonarr exclusion removal failed")
+
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/lookup",
             headers={"X-Api-Key": SONARR_KEY},
@@ -1089,6 +1216,8 @@ async def clean_show(show_id: int):
             headers={"X-Api-Key": SONARR_KEY},
             timeout=15
         )
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail="Failed to get series before clean")
         show_info = {}
         if r.status_code == 200:
             s = r.json()
@@ -1123,8 +1252,9 @@ async def clean_show(show_id: int):
                 headers={"X-Api-Key": SONARR_KEY},
                 timeout=15
             )
-            if dr.status_code in (200, 204):
-                deleted += 1
+            if dr.status_code not in (200, 204):
+                raise HTTPException(status_code=dr.status_code, detail=f"Episode file delete failed after {deleted} deletes; retry clean to finish")
+            deleted += 1
 
         # Unmonitor all episodes so they don't re-download
         er = await client.get(
@@ -1133,17 +1263,20 @@ async def clean_show(show_id: int):
             params={"seriesId": show_id},
             timeout=30
         )
-        if er.status_code == 200:
-            episodes = er.json()
-            for ep in episodes:
-                if ep.get("monitored"):
-                    ep["monitored"] = False
-                    await client.put(
-                        f"{SONARR_URL}/api/v3/episode/{ep['id']}",
-                        headers={"X-Api-Key": SONARR_KEY},
-                        json=ep,
-                        timeout=15
-                    )
+        if er.status_code != 200:
+            raise HTTPException(status_code=er.status_code, detail="Failed to list episodes for clean")
+        episodes = er.json()
+        for ep in episodes:
+            if ep.get("monitored"):
+                ep["monitored"] = False
+                put = await client.put(
+                    f"{SONARR_URL}/api/v3/episode/{ep['id']}",
+                    headers={"X-Api-Key": SONARR_KEY},
+                    json=ep,
+                    timeout=15
+                )
+                if put.status_code not in (200, 202):
+                    raise HTTPException(status_code=put.status_code, detail="Failed to unmonitor episode")
 
         # Make sure show stays monitored (for future episodes)
         r = await client.get(
@@ -1151,15 +1284,18 @@ async def clean_show(show_id: int):
             headers={"X-Api-Key": SONARR_KEY},
             timeout=15
         )
-        if r.status_code == 200:
-            show = r.json()
-            show["monitored"] = True
-            await client.put(
-                f"{SONARR_URL}/api/v3/series/{show_id}",
-                headers={"X-Api-Key": SONARR_KEY},
-                json=show,
-                timeout=15
-            )
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail="Failed to reload series after clean")
+        show = r.json()
+        show["monitored"] = True
+        put = await client.put(
+            f"{SONARR_URL}/api/v3/series/{show_id}",
+            headers={"X-Api-Key": SONARR_KEY},
+            json=show,
+            timeout=15
+        )
+        if put.status_code not in (200, 202):
+            raise HTTPException(status_code=put.status_code, detail="Failed to keep series monitored")
 
     # Log the clean action
     decisions[str(show_id)] = {
@@ -1187,19 +1323,22 @@ async def unclean_show(show_id: int):
             params={"seriesId": show_id},
             timeout=30
         )
+        if er.status_code != 200:
+            raise HTTPException(status_code=er.status_code, detail="Failed to list episodes for re-monitor")
         re_monitored = 0
-        if er.status_code == 200:
-            episodes = er.json()
-            for ep in episodes:
-                if not ep.get("monitored"):
-                    ep["monitored"] = True
-                    await client.put(
-                        f"{SONARR_URL}/api/v3/episode/{ep['id']}",
-                        headers={"X-Api-Key": SONARR_KEY},
-                        json=ep,
-                        timeout=15
-                    )
-                    re_monitored += 1
+        episodes = er.json()
+        for ep in episodes:
+            if not ep.get("monitored"):
+                ep["monitored"] = True
+                put = await client.put(
+                    f"{SONARR_URL}/api/v3/episode/{ep['id']}",
+                    headers={"X-Api-Key": SONARR_KEY},
+                    json=ep,
+                    timeout=15
+                )
+                if put.status_code not in (200, 202):
+                    raise HTTPException(status_code=put.status_code, detail="Failed to re-monitor episode")
+                re_monitored += 1
 
     # Remove clean decision
     sid = str(show_id)
@@ -1247,7 +1386,7 @@ async def get_show_history():
             "action": info.get("action"),
             "timestamp": info.get("timestamp"),
             "title": title,
-            "year": year,
+            "year": history_year(year),
             "posterUrl": poster,
             "deletedFiles": info.get("deletedFiles"),
             "freedGB": info.get("freedGB"),
@@ -1313,12 +1452,10 @@ SONARR_ROOT_FOLDER = os.getenv("SONARR_ROOT_FOLDER", "I:\\TV")
 HIDDEN_FILE = DATA_DIR / "hidden_discover.json"
 
 def load_hidden():
-    if HIDDEN_FILE.exists():
-        return json.loads(HIDDEN_FILE.read_text())
-    return {}
+    return load_json_store(HIDDEN_FILE)
 
 def save_hidden(hidden):
-    HIDDEN_FILE.write_text(json.dumps(hidden, indent=2))
+    save_json_store(HIDDEN_FILE, hidden)
 
 @app.get("/api/providers")
 async def get_providers():
@@ -1570,7 +1707,7 @@ async def dislike_discover(tmdb_id: int, body: dict = {}):
         "action": "hidden",
         "timestamp": datetime.now().isoformat(),
         "title": title,
-        "year": year,
+        "year": history_year(year),
         "posterUrl": body.get("posterUrl"),
         "type": media_type,
         "hideSource": "dislike",
@@ -1588,7 +1725,7 @@ async def hide_discover(tmdb_id: int, body: dict = {}):
         "action": body.get("action", "hidden"),
         "timestamp": datetime.now().isoformat(),
         "title": body.get("title"),
-        "year": body.get("year"),
+        "year": history_year(body.get("year")),
         "posterUrl": body.get("posterUrl"),
         "type": body.get("type", "movie"),
         "hideSource": "skip",
@@ -1735,7 +1872,7 @@ async def get_discover_history():
                 "action": info.get("action", "hidden"),
                 "timestamp": info.get("timestamp"),
                 "title": title,
-                "year": year,
+                "year": history_year(year),
                 "posterUrl": poster,
                 "type": item_type,
             })
@@ -1914,46 +2051,235 @@ async def remove_show_from_discover(tmdb_id: int):
 
 @app.post("/api/save-env")
 async def save_env(config: dict):
-    """Save configuration to .env file."""
-    env_file = Path(__file__).parent / ".env"
-    radarr_root = config.get('radarrRootFolder', 'H:\\')
-    sonarr_root = config.get('sonarrRootFolder', 'I:\\TV')
+    """Persist configuration. Same writer as /api/config; does not mint a token."""
+    if not configured_api_token() and not str(config.get("apiToken") or "").strip():
+        raise HTTPException(status_code=400, detail="First-run setup requires a new API token")
+    return persist_config(config)
 
-    lines = [
-        "# TV Tenderr Configuration",
-        "# Auto-generated by setup wizard",
-        "",
-        "# Backend",
-        f"BACKEND_HOST=0.0.0.0",
-        f"BACKEND_PORT={config.get('port', 8899)}",
-        "",
-        "# Radarr (movies)",
-        f"RADARR_URL={config.get('radarrUrl', '')}",
-        f"RADARR_KEY={config.get('radarrKey', '')}",
-        "",
-        "# Sonarr (TV shows)",
-        f"SONARR_URL={config.get('sonarrUrl', '')}",
-        f"SONARR_KEY={config.get('sonarrKey', '')}",
-        "",
-        "# Plex",
-        f"PLEX_URL={config.get('plexUrl', '')}",
-        f"PLEX_TOKEN={config.get('plexToken', '')}",
-        "",
-        "# TMDb",
-        f"TMDB_KEY={config.get('tmdbKey', '')}",
-        "",
-        "# Quality defaults",
-        f"RADARR_QUALITY_ID={config.get('radarrQualityId', 4)}",
-        f"SONARR_QUALITY_ID={config.get('sonarrQualityId', 4)}",
-        f"RADARR_ROOT_FOLDER={radarr_root}",
-        f"SONARR_ROOT_FOLDER={sonarr_root}",
-        "",
-    ]
 
-    env_file.write_text("\n".join(lines))
+CONFIG_TO_ENV = {
+    "radarrUrl": ("RADARR_URL", "url"),
+    "radarrKey": ("RADARR_KEY", "secret"),
+    "sonarrUrl": ("SONARR_URL", "url"),
+    "sonarrKey": ("SONARR_KEY", "secret"),
+    "plexUrl": ("PLEX_URL", "url"),
+    "plexToken": ("PLEX_TOKEN", "secret"),
+    "tmdbKey": ("TMDB_KEY", "secret"),
+    "apiToken": ("TV_TENDERR_API_TOKEN", "secret"),
+    "radarrQualityId": ("RADARR_QUALITY_ID", "int"),
+    "sonarrQualityId": ("SONARR_QUALITY_ID", "int"),
+    "radarrRootFolder": ("RADARR_ROOT_FOLDER", "text"),
+    "sonarrRootFolder": ("SONARR_ROOT_FOLDER", "text"),
+    "backendHost": ("BACKEND_HOST", "text"),
+    "port": ("BACKEND_PORT", "int"),
+}
+ENV_KEY_ORDER = [
+    "BACKEND_HOST",
+    "BACKEND_PORT",
+    "TV_TENDERR_API_TOKEN",
+    "RADARR_URL",
+    "RADARR_KEY",
+    "SONARR_URL",
+    "SONARR_KEY",
+    "PLEX_URL",
+    "PLEX_TOKEN",
+    "TMDB_KEY",
+    "RADARR_QUALITY_ID",
+    "SONARR_QUALITY_ID",
+    "RADARR_ROOT_FOLDER",
+    "SONARR_ROOT_FOLDER",
+]
+
+
+def validate_service_url(url):
+    parsed = urllib.parse.urlparse(str(url))
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Service URL must be http or https with a host")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="Service URL must not include credentials")
+    return str(url)
+
+
+def read_env_values(path):
+    # Use the same parser on write/merge as startup; preserve quoted hashes,
+    # backslashes and dollar expressions literally, without interpolation.
+    return {key: value for key, value in dotenv_values(path, interpolate=False).items() if value is not None} if path.exists() else {}
+
+
+def write_env_values(path, values):
+    def quote(value):
+        return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+    lines = ["# TV Tenderr Configuration", ""]
+    seen = set()
+    for key in ENV_KEY_ORDER:
+        if key in values:
+            lines.append(f"{key}={quote(values[key])}")
+            seen.add(key)
+    for key, value in values.items():
+        if key not in seen:
+            lines.append(f"{key}={quote(value)}")
+    lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        os.fchmod(handle.fileno(), 0o600)
+        handle.write("\n".join(lines))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def apply_runtime_config(values):
+    global RADARR_URL, RADARR_KEY, SONARR_URL, SONARR_KEY, PLEX_URL, PLEX_TOKEN, TMDB_KEY
+    global RADARR_QUALITY_ID, SONARR_QUALITY_ID, RADARR_ROOT_FOLDER, SONARR_ROOT_FOLDER
+    if values.get("RADARR_URL"):
+        RADARR_URL = values["RADARR_URL"]
+    if values.get("RADARR_KEY"):
+        RADARR_KEY = values["RADARR_KEY"]
+    if values.get("SONARR_URL"):
+        SONARR_URL = values["SONARR_URL"]
+    if values.get("SONARR_KEY"):
+        SONARR_KEY = values["SONARR_KEY"]
+    if values.get("PLEX_URL"):
+        PLEX_URL = values["PLEX_URL"]
+    if values.get("PLEX_TOKEN"):
+        PLEX_TOKEN = values["PLEX_TOKEN"]
+    if values.get("TMDB_KEY"):
+        TMDB_KEY = values["TMDB_KEY"]
+    if values.get("RADARR_QUALITY_ID"):
+        RADARR_QUALITY_ID = int(values["RADARR_QUALITY_ID"])
+    if values.get("SONARR_QUALITY_ID"):
+        SONARR_QUALITY_ID = int(values["SONARR_QUALITY_ID"])
+    if values.get("RADARR_ROOT_FOLDER"):
+        RADARR_ROOT_FOLDER = values["RADARR_ROOT_FOLDER"]
+    if values.get("SONARR_ROOT_FOLDER"):
+        SONARR_ROOT_FOLDER = values["SONARR_ROOT_FOLDER"]
+    if values.get("TV_TENDERR_API_TOKEN"):
+        os.environ[API_TOKEN_ENV] = values["TV_TENDERR_API_TOKEN"]
+    if values.get("BACKEND_HOST"):
+        os.environ["BACKEND_HOST"] = values["BACKEND_HOST"]
+    if values.get("BACKEND_PORT"):
+        os.environ["BACKEND_PORT"] = values["BACKEND_PORT"]
+
+
+def persist_config(config):
+    """Merge a caller-supplied config into ENV_FILE. Blank secrets do not erase stored ones."""
+    values = read_env_values(ENV_FILE)
+    for field, (env_key, kind) in CONFIG_TO_ENV.items():
+        if field not in config or config[field] is None:
+            continue
+        if kind == "secret":
+            secret = str(config[field]).strip()
+            if not secret:
+                continue
+            values[env_key] = secret
+        elif kind == "url":
+            url = str(config[field]).strip()
+            if not url:
+                continue
+            values[env_key] = validate_service_url(url)
+        elif kind == "int":
+            try:
+                number = int(config[field])
+                if number <= 0:
+                    raise ValueError()
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{field} must be a positive integer")
+            values[env_key] = str(number)
+        else:
+            values[env_key] = str(config[field])
+    if "BACKEND_HOST" not in values:
+        values["BACKEND_HOST"] = resolve_bind_host()
+    write_env_values(ENV_FILE, values)
+    apply_runtime_config(values)
     return {"ok": True}
+
+
+def _presented_token(request: Request) -> str:
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    return ""
+
+
+def token_is_valid(presented: str) -> bool:
+    expected = configured_api_token()
+    if not expected or not presented:
+        return False
+    return hmac.compare_digest(presented.encode('utf-8'), expected.encode('utf-8'))
+
+
+def service_secrets_configured() -> bool:
+    placeholders = {
+        "",
+        "your_radarr_api_key",
+        "your_sonarr_api_key",
+        "your_plex_token",
+        "your_tmdb_api_key",
+    }
+    return any(value and value not in placeholders for value in (RADARR_KEY, SONARR_KEY, PLEX_TOKEN, TMDB_KEY))
+
+
+def bootstrap_setup_allowed(client_host):
+    if configured_api_token():
+        return False
+    if client_host not in LOOPBACK_HOSTS:
+        return False
+    return not service_secrets_configured()
+
+
+def request_is_authorized(request: Request) -> bool:
+    if token_is_valid(_presented_token(request)):
+        return True
+    if request.method == "POST" and request.url.path in {"/api/save-env", "/api/config"}:
+        host = request.client.host if request.client else None
+        return bootstrap_setup_allowed(host)
+    return False
+
+
+@app.middleware("http")
+async def guard_api(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path != "/api/health":
+        # The lock covers authorization as well as the complete handler's
+        # read/await-upstream/modify/write transaction. Recheck inside the lock:
+        # a queued bootstrap or old-token request must not survive a config change.
+        async with decision_lock:
+            if not request_is_authorized(request):
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+            return await call_next(request)
+    if path in {"/docs", "/redoc", "/openapi.json"} and not request_is_authorized(request):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
+@app.get("/api/health")
+async def health():
+    return {"ok": True}
+
+
+def assert_data_dir_safe(current, legacy):
+    if not legacy.exists():
+        return
+    try:
+        if legacy.resolve() == current.resolve():
+            return
+    except OSError:
+        return
+    legacy_files = [path for path in legacy.glob("*.json") if path.is_file() and path.stat().st_size > 0]
+    current_files = [path for path in current.glob("*.json") if path.is_file() and path.stat().st_size > 0]
+    if legacy_files and not current_files:
+        raise SystemExit(
+            f"Refusing to boot: {current} has no decision store and an older store exists at {legacy}"
+        )
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8899)
+    assert_data_dir_safe(DATA_DIR, LEGACY_DATA_DIR)
+    bind_host = resolve_bind_host()
+    bind_port = resolve_bind_port()
+    print(f"TV Tenderr bind={bind_host}:{bind_port} auth_configured={bool(configured_api_token())}")
+    uvicorn.run(app, host=bind_host, port=bind_port)

@@ -24,7 +24,7 @@ class CalendarActivity : AppCompatActivity() {
 
         val serverUrl = getSharedPreferences("movieswipe", MODE_PRIVATE)
             .getString("server_url", "http://10.0.2.2:8899") ?: "http://10.0.2.2:8899"
-        api = ApiClient(serverUrl)
+        api = ApiClient(serverUrl, storedApiToken(this))
 
         findViewById<TextView>(R.id.btnCalendarBack).setOnClickListener { finish() }
 

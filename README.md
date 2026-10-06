@@ -22,20 +22,24 @@ A Tinder-style app for managing your Plex media library. Swipe through movies an
 - **History** — track all decisions; Show Again removes a Discover Import List Exclusion before restoring the item
 - **Web GUI** — desktop interface with card and grid views, all features mirrored
 
+## Security and upgrades
+
+**1.3.4 requires an API token on configured servers.** Read [Security and upgrade notes](SECURITY.md) before updating. Set an explicit private `BACKEND_HOST`, use protected transport, run one backend worker, and connect each client with the existing token. Web login is session-scoped, not persistent across all tabs/browser restarts.
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/croycrabtree/tv-tenderr.git
+git clone https://github.com/PIR8-Software/tv-tenderr.git
 cd tv-tenderr
 ./setup.sh
 # Edit .env with your credentials
-python3 backend.py
+.venv/bin/python backend.py
 ```
 
 ## Documentation
 
 - **[User Guide](USER_GUIDE.md)** — complete usage instructions for app and web GUI
-- **[Setup Guide](#setup)** — installation and configuration
+- **[Setup Guide](#quick-start)** — installation and configuration
 
 ## Screenshots
 

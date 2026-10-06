@@ -1,0 +1,5 @@
+fastapi==0.141.1
+uvicorn==0.52.3
+httpx==0.28.1
+python-dotenv==1.2.2
+python-dateutil==2.8.2

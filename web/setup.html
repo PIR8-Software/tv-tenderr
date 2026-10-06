@@ -49,6 +49,17 @@
         <!-- Step 1: Services -->
         <div class="step active" id="step1">
             <div class="section">
+                <div class="field">
+                    <label for="apiToken">Existing API token (configured server)</label>
+                    <input type="password" id="apiToken" autocomplete="off">
+                </div>
+                <div class="field">
+                    <label for="bootstrapToken">New API token (empty server, local first-run only)</label>
+                    <input type="password" id="bootstrapToken" autocomplete="new-password">
+                    <div class="help">Choose and securely retain a strong token locally. Do not paste it into chat. Leave this blank on an already configured server.</div>
+                </div>
+            </div>
+            <div class="section">
                 <div class="section-title">🎬 Radarr (Movies)</div>
                 <div class="field">
                     <label>URL</label>
@@ -186,31 +197,27 @@
             }
 
             try {
-                const res = await fetch('/api/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
-                });
-
-                if (res.ok) {
-                    // Save to .env file via a special endpoint
-                    await fetch('/api/save-env', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(config)
-                    });
-
-                    status.className = 'status success';
-                    status.textContent = '✅ Configuration saved! Redirecting...';
-                    setTimeout(() => window.location.href = '/', 1500);
-                } else {
-                    status.className = 'status error';
-                    status.textContent = '❌ Failed to save configuration';
-                }
+                const bootstrapToken = document.getElementById('bootstrapToken').value.trim();
+                if (bootstrapToken) config.apiToken = bootstrapToken;
+                await postJson('/api/config', config);
+                const token = bootstrapToken || document.getElementById('apiToken').value.trim();
+                if (token) sessionStorage.setItem('tvTenderrToken', token);
+                status.className = 'status success';
+                status.textContent = 'Configuration saved. Redirecting...';
+                setTimeout(() => window.location.href = '/', 1500);
             } catch (e) {
                 status.className = 'status error';
-                status.textContent = '❌ Could not connect to server';
+                status.textContent = e.message || 'Could not connect to server';
             }
+        }
+
+        async function postJson(url, config) {
+            const headers = { 'Content-Type': 'application/json' };
+            const token = (document.getElementById('apiToken') && document.getElementById('apiToken').value.trim()) || sessionStorage.getItem('tvTenderrToken') || '';
+            if (token) headers.Authorization = 'Bearer ' + token;
+            const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(config) });
+            if (!res.ok) throw new Error('Save failed: ' + res.status + '. First-run setup only works from this machine before secrets exist, or with the API token.');
+            return res;
         }
     </script>
 </body>

@@ -58,6 +58,20 @@
             android:paddingEnd="12dp"
             android:inputType="textUri"
             android:singleLine="true"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/etApiToken"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="API token"
+            android:textColor="@android:color/white"
+            android:textColorHint="#666"
+            android:background="@drawable/search_bg"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:inputType="textPassword"
+            android:singleLine="true"
             android:layout_marginBottom="20dp" />
 
         <!-- Radarr -->
@@ -94,7 +108,7 @@
             android:background="@drawable/search_bg"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:inputType="text"
+            android:inputType="textPassword"
             android:singleLine="true"
             android:layout_marginBottom="20dp" />
 
@@ -132,7 +146,7 @@
             android:background="@drawable/search_bg"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:inputType="text"
+            android:inputType="textPassword"
             android:singleLine="true"
             android:layout_marginBottom="20dp" />
 
@@ -170,7 +184,7 @@
             android:background="@drawable/search_bg"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:inputType="text"
+            android:inputType="textPassword"
             android:singleLine="true"
             android:layout_marginBottom="32dp" />
 
@@ -194,7 +208,7 @@
             android:background="@drawable/search_bg"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:inputType="text"
+            android:inputType="textPassword"
             android:singleLine="true"
             android:layout_marginBottom="32dp" />
 

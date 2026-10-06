@@ -1,12 +1,12 @@
 [Unit]
-Description=Movie Swipe Backend API
+Description=TV Tenderr Backend API
 After=network.target
 
 [Service]
 Type=simple
 User=roy
-WorkingDirectory=/home/roy/projects/movie-swipe
-ExecStart=/usr/bin/python3 /home/roy/projects/movie-swipe/backend.py
+WorkingDirectory=/home/roy/projects/tv-tenderr
+ExecStart=/usr/bin/python3 /home/roy/projects/tv-tenderr/backend.py
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

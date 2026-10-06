@@ -113,7 +113,7 @@ class ApiClientRegressionTest {
                 server.enqueue(MockResponse().setResponseCode(200).setBody("{\"movie_providers\":[],\"tv_providers\":[]}"))
                 api.getProviders { _, _ -> latch.countDown() }
             },
-            "/api/discover/movies?page=2&limit=15&sort_by=vote_average.desc&providers=8|9" to { latch ->
+            "/api/discover/movies?page=2&limit=15&sort_by=vote_average.desc&providers=8%7C9" to { latch ->
                 server.enqueue(MockResponse().setResponseCode(200).setBody("{\"movies\":[],\"total\":0,\"page\":2}"))
                 api.discoverMovies(2, 15, "8|9", "vote_average.desc") { _, _ -> latch.countDown() }
             },
@@ -153,5 +153,22 @@ class ApiClientRegressionTest {
         assertTrue(callback.await(2, TimeUnit.SECONDS))
         assertFalse(succeeded)
         assertEquals("HTTP 503", error)
+    }
+
+    @Test
+    fun bearerTokenIsSentWhenConfiguredAndOmittedWhenBlank() {
+        api.setToken("synthetic-test-token")
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{\"ok\":true}"))
+        val authed = CountDownLatch(1)
+        api.keepMovie(1) { _, _ -> authed.countDown() }
+        assertTrue(authed.await(2, TimeUnit.SECONDS))
+        assertEquals("Bearer synthetic-test-token", server.takeRequest(2, TimeUnit.SECONDS)!!.getHeader("Authorization"))
+
+        val blank = ApiClient(server.url("").toString().removeSuffix("/"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{\"ok\":true}"))
+        val open = CountDownLatch(1)
+        blank.keepMovie(1) { _, _ -> open.countDown() }
+        assertTrue(open.await(2, TimeUnit.SECONDS))
+        assertNull(server.takeRequest(2, TimeUnit.SECONDS)!!.getHeader("Authorization"))
     }
 }
