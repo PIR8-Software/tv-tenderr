@@ -1,0 +1,16 @@
+# Pre-commit hooks for tv-tenderr.
+#
+# These hooks cover structural hygiene only (whitespace, YAML validity, file
+# size). Formatter/linter hooks (black, isort, ruff) are not wired in yet: the
+# existing codebase is not formatter-clean, so those hooks would rewrite
+# unrelated code whenever a legacy file is touched. Run them manually per
+# CONTRIBUTING.md and enable the hooks in a dedicated formatting pass.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
