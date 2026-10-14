@@ -22,6 +22,12 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
-      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          for file in requirements.txt requirements-dev.txt; do
+            if [ -f "$file" ]; then
+              python -m pip install -r "$file"
+            fi
+          done
       - run: python -m pytest -q
       - run: bash -n setup.sh install.sh release.sh bump_version.sh
