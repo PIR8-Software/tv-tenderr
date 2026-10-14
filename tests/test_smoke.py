@@ -1,6 +1,9 @@
-import os
+from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
 
-def test_smoke_imports():
-    assert os.path.exists("README.md")
-    assert os.path.exists("requirements.txt")
+def test_repo_layout_smoke():
+    assert (ROOT / 'README.md').exists()
+    assert (ROOT / 'requirements.txt').exists()
+    assert (ROOT / 'backend.py').exists()
+    assert (ROOT / 'tests').is_dir()

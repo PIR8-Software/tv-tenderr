@@ -41,6 +41,24 @@ cd tv-tenderr
 - **[User Guide](USER_GUIDE.md)** — complete usage instructions for app and web GUI
 - **[Setup Guide](#quick-start)** — installation and configuration
 
+## Development
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+```
+
+Run the checks before committing:
+
+```bash
+pytest -q
+ruff check .
+black --check .
+isort --check-only .
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
 ## Screenshots
 
 ### Android App
