@@ -15,7 +15,7 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 fixture = ROOT / "tests/browser_regression.py"
 ns: dict[str, Any] = {"__file__": str(fixture)}
-exec(
+exec(  # noqa: S102 - deliberately runs the shared fixture preamble in a namespace
     compile(
         fixture.read_text().split("with sync_playwright() as p:")[0],
         str(fixture),

@@ -93,9 +93,8 @@ class CorrectionTests(unittest.IsolatedAsyncioTestCase):
                 prior = backend.RADARR_URL
                 with patch.object(
                     backend.os, "replace", side_effect=OSError("synthetic failure")
-                ):
-                    with self.assertRaises(OSError):
-                        backend.persist_config({"radarrUrl": "http://fixture.invalid"})
+                ), self.assertRaises(OSError):
+                    backend.persist_config({"radarrUrl": "http://fixture.invalid"})
                 self.assertEqual(before, path.read_bytes())
                 self.assertEqual(prior, backend.RADARR_URL)
 
@@ -123,9 +122,8 @@ class CorrectionTests(unittest.IsolatedAsyncioTestCase):
                 side_effect=lambda **kw: original(
                     transport=httpx.MockTransport(upstream)
                 ),
-            ):
-                with self.assertRaises(backend.HTTPException) as caught:
-                    await backend.clean_show(9)
+            ), self.assertRaises(backend.HTTPException) as caught:
+                await backend.clean_show(9)
             self.assertEqual(503, caught.exception.status_code)
             self.assertIn("after 1 deletes", caught.exception.detail)
             self.assertEqual({"9": {"action": "keep"}}, backend.load_show_decisions())

@@ -8,6 +8,7 @@ import json
 import os
 import random
 import urllib.parse
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -211,7 +212,7 @@ def get_plex_sections():
         for dir_elem in root.findall(".//Directory"):
             if dir_elem.get("type") == "movie":
                 return dir_elem.get("key")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Plex upstream boundary
         print(f"Plex error: {e}")
     return None
 
@@ -255,7 +256,7 @@ def get_plex_watched_titles(section_type="movie"):
                 year = video.get("year", "")
                 watched.add(f"{title}|{year}")
         return watched
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Plex upstream boundary
         print(f"Plex watched error: {e}")
         return set()
 
@@ -282,7 +283,7 @@ def get_plex_watch_history(section_key):
             last_viewed = video.get("lastViewedAt", "")
             history[rating_key] = {"viewCount": view_count, "lastViewedAt": last_viewed}
         return history
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Plex upstream boundary
         print(f"Plex history error: {e}")
         return {}
 
@@ -301,7 +302,7 @@ def get_poster_url(movie):
 async def get_tmdb_cast(client, tmdb_id, media_type="movie"):
     """Fetch top 3 actors from TMDb."""
     endpoint = "movie" if media_type == "movie" else "tv"
-    try:
+    with suppress(Exception):
         r = await client.get(
             f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}/credits",
             params={"api_key": TMDB_KEY},
@@ -310,14 +311,12 @@ async def get_tmdb_cast(client, tmdb_id, media_type="movie"):
         if r.status_code == 200:
             cast = r.json().get("cast", [])[:3]
             return [c.get("name", "") for c in cast if c.get("name")]
-    except Exception:
-        pass
     return []
 
 
 async def get_tmdb_cast_by_tvdb(client, tvdb_id):
     """Fetch top 3 actors from TMDb using TVDB ID (for Sonarr shows)."""
-    try:
+    with suppress(Exception):
         # First find the TMDb ID from TVDB ID
         r = await client.get(
             f"https://api.themoviedb.org/3/find/{tvdb_id}",
@@ -330,8 +329,6 @@ async def get_tmdb_cast_by_tvdb(client, tvdb_id):
                 tmdb_id = tv_results[0].get("id")
                 if tmdb_id:
                     return await get_tmdb_cast(client, tmdb_id, "tv")
-    except Exception:
-        pass
     return []
 
 
@@ -598,7 +595,7 @@ async def get_stats():
                 total_movies = len(radarr_movies)
             else:
                 total_movies = 0
-        except Exception:
+        except Exception:  # noqa: BLE001 - Radarr boundary, stats fall back to 0
             total_movies = 0
 
         try:
@@ -611,7 +608,7 @@ async def get_stats():
                 total_shows = len(r.json())
             else:
                 total_shows = 0
-        except Exception:
+        except Exception:  # noqa: BLE001 - Sonarr boundary, stats fall back to 0
             total_shows = 0
 
     return {
@@ -650,7 +647,7 @@ async def get_calendar(days: int = 30):
 
     async with httpx.AsyncClient() as client:
         # Radarr calendar
-        try:
+        with suppress(Exception):
             r = await client.get(
                 f"{RADARR_URL}/api/v3/calendar",
                 headers={"X-Api-Key": RADARR_KEY},
@@ -678,11 +675,9 @@ async def get_calendar(days: int = 30):
                             "tmdbId": m.get("tmdbId"),
                         }
                     )
-        except Exception:
-            pass
 
         # Sonarr calendar
-        try:
+        with suppress(Exception):
             r = await client.get(
                 f"{SONARR_URL}/api/v3/calendar",
                 headers={"X-Api-Key": SONARR_KEY},
@@ -713,8 +708,6 @@ async def get_calendar(days: int = 30):
                             "tmdbId": series.get("tvdbId"),
                         }
                     )
-        except Exception:
-            pass
 
     items.sort(key=lambda x: x.get("releaseDate", ""))
     return {"calendar": items, "total": len(items)}
@@ -999,7 +992,7 @@ async def get_latest_release():
                 }
             else:
                 return {"error": f"GitHub API returned {r.status_code}"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - GitHub update-check boundary
             return {"error": str(e)}
 
 
@@ -1597,7 +1590,7 @@ async def plex_refresh():
 
 def get_existing_movie_tmdb_ids():
     """Get TMDb IDs of all movies in Radarr."""
-    try:
+    with suppress(Exception):
         import httpx as _httpx
 
         r = _httpx.get(
@@ -1605,14 +1598,12 @@ def get_existing_movie_tmdb_ids():
         )
         if r.status_code == 200:
             return {str(m.get("tmdbId")) for m in r.json() if m.get("tmdbId")}
-    except Exception:
-        pass
     return set()
 
 
 def get_existing_show_titles():
     """Get normalized titles of all shows in Sonarr."""
-    try:
+    with suppress(Exception):
         import httpx as _httpx
 
         r = _httpx.get(
@@ -1625,8 +1616,6 @@ def get_existing_show_titles():
                 year = s.get("year", "")
                 titles.add(f"{title}|{year}")
             return titles
-    except Exception:
-        pass
     return set()
 
 
@@ -2131,7 +2120,7 @@ async def get_discover_history():
 
             # Look up title from TMDb if missing
             if not title:
-                try:
+                with suppress(Exception):
                     endpoint = "movie" if item_type == "movie" else "tv"
                     r = await client.get(
                         f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_KEY}",
@@ -2149,8 +2138,6 @@ async def get_discover_history():
                             if poster_path
                             else None
                         )
-                except Exception:
-                    pass
 
             history.append(
                 {

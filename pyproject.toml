@@ -1,11 +1,10 @@
 # Tool configuration for tv-tenderr.
 #
 # The lint gate is the classic pycodestyle-pyflakes set (E4/E7/E9/F) plus
-# bugbear (B) — the rule family covering the mutable-argument-default and
-# loop-variable-closure bugs hardened in the lint-hardening pass, now gated
-# against regression. The remaining default families (S, SIM, BLE, C4, PERF,
-# PL, UP, FURB) still carry findings needing per-site judgment and are
-# deferred to a later sweep rather than mixed into hardening fixes.
+# bugbear (B) and the specific rules hardened in the lint-hardening and
+# lint-sweep passes (listed in extend-select). Broader families (S1xx,
+# SIM1xx, C4xx, PLR/PLE, UP/FURB) still carry style/complexity suggestions
+# and remain deferred; intentional patterns are marked per-site with noqa.
 
 [tool.isort]
 profile = "black"
@@ -13,3 +12,14 @@ skip_gitignore = true
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "B"]
+extend-select = [
+    "SIM117",
+    "C408",
+    "S102",
+    "S110",
+    "BLE001",
+    "PERF102",
+    "PLW1510",
+    "FURB167",
+    "UP017",
+]
