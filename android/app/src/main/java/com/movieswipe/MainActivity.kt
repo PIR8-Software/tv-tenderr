@@ -1089,10 +1089,10 @@ class MainActivity : AppCompatActivity() {
         // Show discover controls on card
         val discoverControls = cardView.findViewById<LinearLayout>(R.id.discoverControls)
         discoverControls?.visibility = View.VISIBLE
-        
+
         val tvDiscoverToggle = cardView.findViewById<TextView>(R.id.tvDiscoverToggle)
         val tvSortToggle = cardView.findViewById<TextView>(R.id.tvSortToggle)
-        
+
         // Set current labels
         tvDiscoverToggle.text = if (discoverType == "movies") "🎬 Movies" else "📺 Shows"
         tvSortToggle.text = when (discoverSort) {
@@ -1101,7 +1101,7 @@ class MainActivity : AppCompatActivity() {
             "vote_average.desc" -> "⭐ Top"
             else -> "🔥 Popular"
         }
-        
+
         // Discover type toggle
         tvDiscoverToggle.setOnClickListener {
             discoverType = if (discoverType == "movies") "shows" else "movies"
@@ -1112,7 +1112,7 @@ class MainActivity : AppCompatActivity() {
             binding.cardContainer.removeAllViews()
             loadDiscover()
         }
-        
+
         // Sort toggle
         tvSortToggle.setOnClickListener {
             discoverSort = when (discoverSort) {

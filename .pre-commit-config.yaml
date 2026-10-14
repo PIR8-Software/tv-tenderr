@@ -1,10 +1,9 @@
 # Pre-commit hooks for tv-tenderr.
 #
-# These hooks cover structural hygiene only (whitespace, YAML validity, file
-# size). Formatter/linter hooks (black, isort, ruff) are not wired in yet: the
-# existing codebase is not formatter-clean, so those hooks would rewrite
-# unrelated code whenever a legacy file is touched. Run them manually per
-# CONTRIBUTING.md and enable the hooks in a dedicated formatting pass.
+# The codebase is format-clean (black + isort) and holds the lint baseline
+# (ruff selection in pyproject.toml), so the formatter/linter hooks are
+# enforced here and in CI. Hooks self-fix on touched files; stricter lint
+# rule families are deferred to a lint-hardening pass (see pyproject.toml).
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -14,3 +13,16 @@ repos:
       - id: check-yaml
       - id: check-merge-conflict
       - id: check-added-large-files
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+  - repo: https://github.com/pycqa/isort
+    rev: 9.0.2
+    hooks:
+      - id: isort
+  - repo: https://github.com/psf/black
+    rev: 26.10.1
+    hooks:
+      - id: black

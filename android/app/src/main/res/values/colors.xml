@@ -11,12 +11,12 @@
     <color name="brand_dark_card">#FF21262D</color>
     <color name="brand_text_primary">#FFFFFFFF</color>
     <color name="brand_text_secondary">#FF8B949E</color>
-    
+
     <!-- Legacy compat -->
     <color name="red">#FFE63946</color>
     <color name="yellow">#FFFF6B35</color>
     <color name="green">#FF2DC653</color>
-    
+
     <!-- Launcher icon background -->
     <color name="ic_launcher_bg">#FFFF6B35</color>
     <!-- Chip colors -->

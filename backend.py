@@ -1,17 +1,19 @@
 """TV Tenderr - Backend API
 Connects to Radarr + Sonarr + Plex to serve movies/shows for the swipe interface.
 """
+
 import asyncio
 import hmac
 import json
 import os
 import random
 import urllib.parse
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv, dotenv_values
+from dotenv import dotenv_values, load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -74,6 +76,7 @@ app = FastAPI(title="TV Tenderr", docs_url=None, redoc_url=None, openapi_url=Non
 WEB_DIR = Path(__file__).parent / "web"
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
+
 @app.get("/")
 async def serve_ui():
     # Check if first run (no .env or missing config)
@@ -81,6 +84,7 @@ async def serve_ui():
     if not env_file.exists() or not RADARR_KEY or RADARR_KEY == "your_radarr_api_key":
         return FileResponse(str(WEB_DIR / "setup.html"))
     return FileResponse(str(WEB_DIR / "index.html"))
+
 
 # Config - set these in .env or use env vars
 RADARR_URL = os.getenv("RADARR_URL", "http://localhost:7878")
@@ -92,6 +96,7 @@ PLEX_TOKEN = os.getenv("PLEX_TOKEN", "")
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def skip_revisit_hours():
     """Skip means decide later. The window is explicit and not a permanent exclusion."""
@@ -113,6 +118,7 @@ def is_decision_active(info):
         timestamp = info.get("timestamp")
         if timestamp:
             from dateutil.relativedelta import relativedelta
+
             decided = datetime.fromisoformat(timestamp)
             expires = decided + relativedelta(months=6)
             return datetime.now() < expires
@@ -125,8 +131,10 @@ def is_decision_active(info):
         return datetime.now() < decided + timedelta(hours=skip_revisit_hours())
     return False
 
+
 DECISIONS_FILE = DATA_DIR / "decisions.json"
 SHOW_DECISIONS_FILE = DATA_DIR / "show_decisions.json"
+
 
 def load_json_store(path):
     """Load a decision file. A corrupt file fails closed and is never treated as empty."""
@@ -135,15 +143,23 @@ def load_json_store(path):
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise HTTPException(status_code=503, detail=f"Decision store unreadable: {path.name}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Decision store unreadable: {path.name}"
+        ) from exc
     if not text.strip():
-        raise HTTPException(status_code=503, detail=f"Decision store corrupt: {path.name}")
+        raise HTTPException(
+            status_code=503, detail=f"Decision store corrupt: {path.name}"
+        )
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=503, detail=f"Decision store corrupt: {path.name}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Decision store corrupt: {path.name}"
+        ) from exc
     if not isinstance(data, dict):
-        raise HTTPException(status_code=503, detail=f"Decision store corrupt: {path.name}")
+        raise HTTPException(
+            status_code=503, detail=f"Decision store corrupt: {path.name}"
+        )
     return data
 
 
@@ -166,14 +182,18 @@ def save_json_store(path, data):
 def load_decisions():
     return load_json_store(DECISIONS_FILE)
 
+
 def save_decisions(decisions):
     save_json_store(DECISIONS_FILE, decisions)
+
 
 def load_show_decisions():
     return load_json_store(SHOW_DECISIONS_FILE)
 
+
 def save_show_decisions(decisions):
     save_json_store(SHOW_DECISIONS_FILE, decisions)
+
 
 def get_plex_sections():
     """Get Plex library sections to find the movies library."""
@@ -187,13 +207,15 @@ def get_plex_sections():
         )
         r.raise_for_status()
         import xml.etree.ElementTree as ET
+
         root = ET.fromstring(r.text)
         for dir_elem in root.findall(".//Directory"):
             if dir_elem.get("type") == "movie":
                 return dir_elem.get("key")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Plex upstream boundary
         print(f"Plex error: {e}")
     return None
+
 
 def get_plex_watched_titles(section_type="movie"):
     """Get set of watched titles (lowercase) from Plex."""
@@ -207,6 +229,7 @@ def get_plex_watched_titles(section_type="movie"):
             timeout=10,
         )
         import xml.etree.ElementTree as ET
+
         root = ET.fromstring(r.text)
         section_key = None
         for d in root.findall(".//Directory"):
@@ -233,9 +256,10 @@ def get_plex_watched_titles(section_type="movie"):
                 year = video.get("year", "")
                 watched.add(f"{title}|{year}")
         return watched
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Plex upstream boundary
         print(f"Plex watched error: {e}")
         return set()
+
 
 def get_plex_watch_history(section_key):
     """Get watch history from Plex."""
@@ -250,20 +274,19 @@ def get_plex_watch_history(section_key):
         )
         r.raise_for_status()
         import xml.etree.ElementTree as ET
+
         root = ET.fromstring(r.text)
         history = {}
         for video in root.findall(".//Video"):
             rating_key = video.get("ratingKey")
             view_count = int(video.get("viewCount", 0))
             last_viewed = video.get("lastViewedAt", "")
-            history[rating_key] = {
-                "viewCount": view_count,
-                "lastViewedAt": last_viewed
-            }
+            history[rating_key] = {"viewCount": view_count, "lastViewedAt": last_viewed}
         return history
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - Plex upstream boundary
         print(f"Plex history error: {e}")
         return {}
+
 
 def get_poster_url(movie):
     """Get poster URL from Radarr images - prefer remote TMDB URL."""
@@ -275,30 +298,30 @@ def get_poster_url(movie):
             return img.get("url")
     return None
 
+
 async def get_tmdb_cast(client, tmdb_id, media_type="movie"):
     """Fetch top 3 actors from TMDb."""
     endpoint = "movie" if media_type == "movie" else "tv"
-    try:
+    with suppress(Exception):
         r = await client.get(
             f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}/credits",
             params={"api_key": TMDB_KEY},
-            timeout=8
+            timeout=8,
         )
         if r.status_code == 200:
             cast = r.json().get("cast", [])[:3]
             return [c.get("name", "") for c in cast if c.get("name")]
-    except:
-        pass
     return []
+
 
 async def get_tmdb_cast_by_tvdb(client, tvdb_id):
     """Fetch top 3 actors from TMDb using TVDB ID (for Sonarr shows)."""
-    try:
+    with suppress(Exception):
         # First find the TMDb ID from TVDB ID
         r = await client.get(
             f"https://api.themoviedb.org/3/find/{tvdb_id}",
             params={"api_key": TMDB_KEY, "external_source": "tvdb_id"},
-            timeout=8
+            timeout=8,
         )
         if r.status_code == 200:
             tv_results = r.json().get("tv_results", [])
@@ -306,26 +329,31 @@ async def get_tmdb_cast_by_tvdb(client, tvdb_id):
                 tmdb_id = tv_results[0].get("id")
                 if tmdb_id:
                     return await get_tmdb_cast(client, tmdb_id, "tv")
-    except:
-        pass
     return []
 
+
 @app.get("/api/movies")
-async def get_movies(skip: int = 0, limit: int = 50, genre: str = "", min_year: int = 0, max_year: int = 0, min_rating: float = 0, search: str = ""):
+async def get_movies(
+    skip: int = 0,
+    limit: int = 50,
+    genre: str = "",
+    min_year: int = 0,
+    max_year: int = 0,
+    min_rating: float = 0,
+    search: str = "",
+):
     """Get movies from Radarr with metadata."""
     decisions = load_decisions()
     watched = get_plex_watched_titles("movie")
-    
+
     async with httpx.AsyncClient() as client:
         # Get all movies from Radarr
         r = await client.get(
-            f"{RADARR_URL}/api/v3/movie",
-            headers={"X-Api-Key": RADARR_KEY},
-            timeout=30
+            f"{RADARR_URL}/api/v3/movie", headers={"X-Api-Key": RADARR_KEY}, timeout=30
         )
         r.raise_for_status()
         radarr_movies = r.json()
-    
+
     # Filter eligible movies
     eligible = []
     for m in radarr_movies:
@@ -334,73 +362,92 @@ async def get_movies(skip: int = 0, limit: int = 50, genre: str = "", min_year: 
         if decision and is_decision_active(decision):
             continue
         eligible.append(m)
-    
+
     # Apply filters
     if genre:
-        eligible = [m for m in eligible if genre.lower() in [g.lower() if isinstance(g, str) else g.get("name","").lower() for g in m.get("genres", [])]]
+        eligible = [
+            m
+            for m in eligible
+            if genre.lower()
+            in [
+                g.lower() if isinstance(g, str) else g.get("name", "").lower()
+                for g in m.get("genres", [])
+            ]
+        ]
     if min_year:
         eligible = [m for m in eligible if m.get("year", 0) >= min_year]
     if max_year:
         eligible = [m for m in eligible if m.get("year", 0) <= max_year]
     if min_rating:
-        eligible = [m for m in eligible if (m.get("ratings", {}).get("value", 0) or 0) >= min_rating]
+        eligible = [
+            m
+            for m in eligible
+            if (m.get("ratings", {}).get("value", 0) or 0) >= min_rating
+        ]
     if search:
         search_lower = search.lower()
         eligible = [m for m in eligible if search_lower in m.get("title", "").lower()]
 
     random.shuffle(eligible)
-    batch = eligible[skip:skip+limit]
-    
+    batch = eligible[skip : skip + limit]
+
     # Fetch cast only for the current batch
     async with httpx.AsyncClient() as client:
         import asyncio
+
         cast_tasks = [get_tmdb_cast(client, m.get("tmdbId"), "movie") for m in batch]
         cast_results = await asyncio.gather(*cast_tasks)
-    
+
     movies = []
-    for m, cast in zip(batch, cast_results):
+    for m, cast in zip(batch, cast_results, strict=False):
         movie_id = str(m["id"])
-        
+
         # Get file size if available
         size_gb = 0
         if m.get("sizeOnDisk"):
             size_gb = round(m["sizeOnDisk"] / (1024**3), 2)
-        
+
         poster_url = get_poster_url(m)
-        
-        movies.append({
-            "id": m["id"],
-            "title": m["title"],
-            "year": m.get("year"),
-            "overview": m.get("overview", ""),
-            "genres": [g if isinstance(g, str) else g["name"] for g in m.get("genres", [])],
-            "rating": m.get("ratings", {}).get("value"),
-            "runtime": m.get("runtime"),
-            "sizeGB": size_gb,
-            "posterUrl": poster_url,
-            "hasFile": m.get("hasFile", False),
-            "monitored": m.get("monitored", False),
-            "qualityProfileId": m.get("qualityProfileId"),
-            "status": m.get("status"),
-            "cast": cast,
-            "watched": f"{m['title'].lower().strip()}|{m.get('year', '')}" in watched,
-            "imdbId": m.get("imdbId"),
-            "trailerId": m.get("youTubeTrailerId"),
-        })
-    
+
+        movies.append(
+            {
+                "id": m["id"],
+                "title": m["title"],
+                "year": m.get("year"),
+                "overview": m.get("overview", ""),
+                "genres": [
+                    g if isinstance(g, str) else g["name"] for g in m.get("genres", [])
+                ],
+                "rating": m.get("ratings", {}).get("value"),
+                "runtime": m.get("runtime"),
+                "sizeGB": size_gb,
+                "posterUrl": poster_url,
+                "hasFile": m.get("hasFile", False),
+                "monitored": m.get("monitored", False),
+                "qualityProfileId": m.get("qualityProfileId"),
+                "status": m.get("status"),
+                "cast": cast,
+                "watched": f"{m['title'].lower().strip()}|{m.get('year', '')}"
+                in watched,
+                "imdbId": m.get("imdbId"),
+                "trailerId": m.get("youTubeTrailerId"),
+            }
+        )
+
     return {"movies": movies, "total": len(eligible)}
+
 
 @app.post("/api/movies/{movie_id}/keep")
 async def keep_movie(movie_id: int):
     """Mark a movie as keep - expires in 6 months."""
     decisions = load_decisions()
-    
+
     movie_info = {}
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/{movie_id}",
             headers={"X-Api-Key": RADARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code == 200:
             m = r.json()
@@ -409,11 +456,11 @@ async def keep_movie(movie_id: int):
                 "year": m.get("year"),
                 "posterUrl": get_poster_url(m),
             }
-    
+
     decisions[str(movie_id)] = {
         "action": "keep",
         "timestamp": datetime.now().isoformat(),
-        **movie_info
+        **movie_info,
     }
     save_decisions(decisions)
     return {"ok": True, "action": "keep"}
@@ -423,13 +470,13 @@ async def keep_movie(movie_id: int):
 async def super_keep_movie(movie_id: int):
     """Mark a movie as super_keep - kept forever."""
     decisions = load_decisions()
-    
+
     movie_info = {}
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/{movie_id}",
             headers={"X-Api-Key": RADARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code == 200:
             m = r.json()
@@ -438,56 +485,65 @@ async def super_keep_movie(movie_id: int):
                 "year": m.get("year"),
                 "posterUrl": get_poster_url(m),
             }
-    
+
     decisions[str(movie_id)] = {
         "action": "super_keep",
         "timestamp": datetime.now().isoformat(),
-        **movie_info
+        **movie_info,
     }
     save_decisions(decisions)
     return {"ok": True, "action": "super_keep"}
+
 
 @app.post("/api/movies/{movie_id}/block")
 async def block_movie(movie_id: int):
     """Remove movie from Radarr and add to blocklist."""
     decisions = load_decisions()
-    
+
     async with httpx.AsyncClient() as client:
         # Get movie details BEFORE deleting
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/{movie_id}",
             headers={"X-Api-Key": RADARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail="Failed to get movie before block")
+            raise HTTPException(
+                status_code=r.status_code, detail="Failed to get movie before block"
+            )
         m = r.json()
         if not m.get("tmdbId"):
-            raise HTTPException(status_code=502, detail="Movie has no TMDb ID for restore; block cancelled")
+            raise HTTPException(
+                status_code=502,
+                detail="Movie has no TMDb ID for restore; block cancelled",
+            )
         movie_info = {
             "title": m.get("title"),
             "year": m.get("year"),
             "tmdbId": m["tmdbId"],
             "posterUrl": get_poster_url(m),
         }
-        
+
         # Delete from Radarr (deleteFiles=true removes the actual files)
         r = await client.delete(
             f"{RADARR_URL}/api/v3/movie/{movie_id}",
             headers={"X-Api-Key": RADARR_KEY},
             params={"deleteFiles": "true", "addImportListExclusion": "true"},
-            timeout=30
+            timeout=30,
         )
         if r.status_code not in (200, 204):
-            raise HTTPException(status_code=r.status_code, detail=f"Radarr delete failed: {r.text}")
-    
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Radarr delete failed: {r.text}"
+            )
+
     decisions[str(movie_id)] = {
         "action": "block",
         "timestamp": datetime.now().isoformat(),
-        **movie_info
+        **movie_info,
     }
     save_decisions(decisions)
     return {"ok": True, "action": "block"}
+
 
 @app.post("/api/movies/{movie_id}/skip")
 async def skip_movie(movie_id: int):
@@ -503,57 +559,58 @@ async def skip_movie(movie_id: int):
     save_decisions(decisions)
     return {"ok": True, "action": "skip", "preserved": False}
 
+
 @app.get("/api/stats")
 async def get_stats():
     """Get swipe statistics."""
     movie_decisions = load_decisions()
     show_decisions = load_show_decisions()
     discover = load_hidden()
-    
+
     movie_actions = {}
-    for mid, info in movie_decisions.items():
+    for info in movie_decisions.values():
         action = info.get("action", "unknown")
         movie_actions[action] = movie_actions.get(action, 0) + 1
-    
+
     show_actions = {}
-    for sid, info in show_decisions.items():
+    for info in show_decisions.values():
         action = info.get("action", "unknown")
         show_actions[action] = show_actions.get(action, 0) + 1
-    
+
     discover_actions = {}
-    for tid, info in discover.items():
+    for info in discover.values():
         action = info.get("action", "unknown")
         discover_actions[action] = discover_actions.get(action, 0) + 1
-    
+
     # Calculate disk space freed from blocked movies
     async with httpx.AsyncClient() as client:
         try:
             r = await client.get(
                 f"{RADARR_URL}/api/v3/movie",
                 headers={"X-Api-Key": RADARR_KEY},
-                timeout=30
+                timeout=30,
             )
             if r.status_code == 200:
                 radarr_movies = r.json()
                 total_movies = len(radarr_movies)
             else:
                 total_movies = 0
-        except:
+        except Exception:  # noqa: BLE001 - Radarr boundary, stats fall back to 0
             total_movies = 0
-        
+
         try:
             r = await client.get(
                 f"{SONARR_URL}/api/v3/series",
                 headers={"X-Api-Key": SONARR_KEY},
-                timeout=30
+                timeout=30,
             )
             if r.status_code == 200:
                 total_shows = len(r.json())
             else:
                 total_shows = 0
-        except:
+        except Exception:  # noqa: BLE001 - Sonarr boundary, stats fall back to 0
             total_shows = 0
-    
+
     return {
         "movies": {
             "total": total_movies,
@@ -574,115 +631,132 @@ async def get_stats():
         "discover": {
             "added": discover_actions.get("added", 0),
             "hidden": discover_actions.get("hidden", 0),
-        }
+        },
     }
+
 
 @app.get("/api/calendar")
 async def get_calendar(days: int = 30):
     """Get upcoming releases from Radarr and Sonarr."""
     from datetime import datetime, timedelta
-    
+
     start = datetime.now().strftime("%Y-%m-%d")
     end = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-    
+
     items = []
-    
+
     async with httpx.AsyncClient() as client:
         # Radarr calendar
-        try:
+        with suppress(Exception):
             r = await client.get(
                 f"{RADARR_URL}/api/v3/calendar",
                 headers={"X-Api-Key": RADARR_KEY},
                 params={"start": start, "end": end},
-                timeout=30
+                timeout=30,
             )
             if r.status_code == 200:
                 for m in r.json():
-                    release_date = m.get("digitalRelease") or m.get("physicalRelease") or m.get("inCinemas") or ""
-                    items.append({
-                        "type": "movie",
-                        "title": m.get("title"),
-                        "year": m.get("year"),
-                        "releaseDate": release_date[:10] if release_date else "",
-                        "status": m.get("status"),
-                        "hasFile": m.get("hasFile", False),
-                        "monitored": m.get("monitored", False),
-                        "posterUrl": get_poster_url(m),
-                        "tmdbId": m.get("tmdbId"),
-                    })
-        except:
-            pass
-        
+                    release_date = (
+                        m.get("digitalRelease")
+                        or m.get("physicalRelease")
+                        or m.get("inCinemas")
+                        or ""
+                    )
+                    items.append(
+                        {
+                            "type": "movie",
+                            "title": m.get("title"),
+                            "year": m.get("year"),
+                            "releaseDate": release_date[:10] if release_date else "",
+                            "status": m.get("status"),
+                            "hasFile": m.get("hasFile", False),
+                            "monitored": m.get("monitored", False),
+                            "posterUrl": get_poster_url(m),
+                            "tmdbId": m.get("tmdbId"),
+                        }
+                    )
+
         # Sonarr calendar
-        try:
+        with suppress(Exception):
             r = await client.get(
                 f"{SONARR_URL}/api/v3/calendar",
                 headers={"X-Api-Key": SONARR_KEY},
                 params={"start": start, "end": end, "includeSeries": "true"},
-                timeout=30
+                timeout=30,
             )
             if r.status_code == 200:
                 for ep in r.json():
                     series = ep.get("series", {})
-                    items.append({
-                        "type": "show",
-                        "title": series.get("title"),
-                        "year": series.get("year"),
-                        "episode": f"S{ep.get('seasonNumber',0):02d}E{ep.get('episodeNumber',0):02d}",
-                        "episodeTitle": ep.get("title"),
-                        "releaseDate": ep.get("airDate", ""),
-                        "hasFile": ep.get("hasFile", False),
-                        "monitored": ep.get("monitored", False),
-                        "posterUrl": next((img.get("remoteUrl") or img.get("url") for img in series.get("images", []) if img.get("coverType") == "poster"), None),
-                        "tmdbId": series.get("tvdbId"),
-                    })
-        except:
-            pass
-    
+                    items.append(
+                        {
+                            "type": "show",
+                            "title": series.get("title"),
+                            "year": series.get("year"),
+                            "episode": f"S{ep.get('seasonNumber',0):02d}E{ep.get('episodeNumber',0):02d}",
+                            "episodeTitle": ep.get("title"),
+                            "releaseDate": ep.get("airDate", ""),
+                            "hasFile": ep.get("hasFile", False),
+                            "monitored": ep.get("monitored", False),
+                            "posterUrl": next(
+                                (
+                                    img.get("remoteUrl") or img.get("url")
+                                    for img in series.get("images", [])
+                                    if img.get("coverType") == "poster"
+                                ),
+                                None,
+                            ),
+                            "tmdbId": series.get("tvdbId"),
+                        }
+                    )
+
     items.sort(key=lambda x: x.get("releaseDate", ""))
     return {"calendar": items, "total": len(items)}
+
 
 @app.get("/api/history")
 async def get_history():
     """Get all decisions with movie details."""
     decisions = load_decisions()
     history = []
-    
+
     # For decisions missing titles, look them up from Radarr
     async with httpx.AsyncClient() as client:
         r = await client.get(
-            f"{RADARR_URL}/api/v3/movie",
-            headers={"X-Api-Key": RADARR_KEY},
-            timeout=30
+            f"{RADARR_URL}/api/v3/movie", headers={"X-Api-Key": RADARR_KEY}, timeout=30
         )
-        radarr_movies = {str(m["id"]): m for m in r.json()} if r.status_code == 200 else {}
-    
+        radarr_movies = (
+            {str(m["id"]): m for m in r.json()} if r.status_code == 200 else {}
+        )
+
     for mid, info in decisions.items():
         title = info.get("title")
         year = info.get("year")
         poster = info.get("posterUrl")
-        
+
         # If no title stored, try to get it from Radarr
         if not title and mid in radarr_movies:
             m = radarr_movies[mid]
             title = m.get("title")
             year = m.get("year")
             poster = get_poster_url(m)
-        
-        history.append({
-            "movieId": int(mid),
-            "action": info.get("action"),
-            "timestamp": info.get("timestamp"),
-            "title": title,
-            "year": history_year(year),
-            "tmdbId": info.get("tmdbId"),
-            "posterUrl": poster,
-        })
+
+        history.append(
+            {
+                "movieId": int(mid),
+                "action": info.get("action"),
+                "timestamp": info.get("timestamp"),
+                "title": title,
+                "year": history_year(year),
+                "tmdbId": info.get("tmdbId"),
+                "posterUrl": poster,
+            }
+        )
     # Filter out skips
     history = [h for h in history if h.get("action") != "skip"]
     # Sort by timestamp, newest first
     history.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return {"history": history}
+
 
 @app.post("/api/movies/{movie_id}/unkeep")
 async def unkeep_movie(movie_id: int):
@@ -695,19 +769,20 @@ async def unkeep_movie(movie_id: int):
         return {"ok": True, "action": "unkeep"}
     raise HTTPException(status_code=404, detail="No keep decision found")
 
+
 @app.post("/api/movies/{movie_id}/unblock")
 async def unblock_movie(movie_id: int):
     """Re-add a blocked movie to Radarr using stored tmdbId."""
     decisions = load_decisions()
     mid = str(movie_id)
-    
+
     if mid not in decisions or decisions[mid].get("action") != "block":
         raise HTTPException(status_code=404, detail="No block decision found")
-    
+
     tmdb_id = decisions[mid].get("tmdbId")
     if not tmdb_id:
         raise HTTPException(status_code=400, detail="No tmdbId stored - cannot re-add")
-    
+
     async with httpx.AsyncClient() as client:
         exclusions = await client.get(
             f"{RADARR_URL}/api/v3/exclusions",
@@ -715,8 +790,18 @@ async def unblock_movie(movie_id: int):
             timeout=30,
         )
         if exclusions.status_code != 200:
-            raise HTTPException(status_code=exclusions.status_code, detail="Radarr exclusion lookup failed")
-        match = next((item for item in exclusions.json() if str(item.get("tmdbId")) == str(tmdb_id)), None)
+            raise HTTPException(
+                status_code=exclusions.status_code,
+                detail="Radarr exclusion lookup failed",
+            )
+        match = next(
+            (
+                item
+                for item in exclusions.json()
+                if str(item.get("tmdbId")) == str(tmdb_id)
+            ),
+            None,
+        )
         if match:
             removed = await client.delete(
                 f"{RADARR_URL}/api/v3/exclusions/{match['id']}",
@@ -724,20 +809,23 @@ async def unblock_movie(movie_id: int):
                 timeout=30,
             )
             if removed.status_code not in (200, 202, 204, 404):
-                raise HTTPException(status_code=removed.status_code, detail="Radarr exclusion removal failed")
+                raise HTTPException(
+                    status_code=removed.status_code,
+                    detail="Radarr exclusion removal failed",
+                )
 
         # Look up the movie on Radarr by tmdbId
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/lookup",
             headers={"X-Api-Key": RADARR_KEY},
             params={"term": f"tmdb:{tmdb_id}"},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200 or not r.json():
             raise HTTPException(status_code=404, detail="Movie not found on TMDB")
-        
+
         movie_data = r.json()[0]
-        
+
         # Add movie back to Radarr
         add_payload = {
             "title": movie_data["title"],
@@ -748,20 +836,23 @@ async def unblock_movie(movie_id: int):
             "addOptions": {"searchForMovie": False},
             "images": movie_data.get("images", []),
         }
-        
+
         r = await client.post(
             f"{RADARR_URL}/api/v3/movie",
             headers={"X-Api-Key": RADARR_KEY},
             json=add_payload,
-            timeout=30
+            timeout=30,
         )
         if r.status_code not in (200, 201):
-            raise HTTPException(status_code=r.status_code, detail=f"Radarr add failed: {r.text}")
-    
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Radarr add failed: {r.text}"
+            )
+
     # Remove from decisions
     del decisions[mid]
     save_decisions(decisions)
     return {"ok": True, "action": "unblock", "title": movie_data["title"]}
+
 
 @app.get("/api/blocklist")
 async def get_blocklist():
@@ -770,13 +861,14 @@ async def get_blocklist():
         r = await client.get(
             f"{RADARR_URL}/api/v3/blocklist",
             headers={"X-Api-Key": RADARR_KEY},
-            timeout=30
+            timeout=30,
         )
         r.raise_for_status()
         data = r.json()
-    
+
     items = data.get("records", data) if isinstance(data, dict) else data
     return {"blocklist": items, "count": len(items)}
+
 
 def poster_request(poster_path):
     """Attach the Arr key only to a relative Radarr media path. Never follow redirects with it."""
@@ -799,11 +891,11 @@ async def get_poster(movie_id: int):
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/{movie_id}",
             headers={"X-Api-Key": RADARR_KEY},
-            timeout=15
+            timeout=15,
         )
         r.raise_for_status()
         movie = r.json()
-    
+
     poster_path = get_poster_url(movie)
     if not poster_path:
         raise HTTPException(status_code=404, detail="No poster")
@@ -817,10 +909,13 @@ async def get_poster(movie_id: int):
             follow_redirects=False,
         )
         if r.status_code in (301, 302, 303, 307, 308):
-            raise HTTPException(status_code=502, detail="Poster redirect was not followed")
+            raise HTTPException(
+                status_code=502, detail="Poster redirect was not followed"
+            )
         r.raise_for_status()
 
     return Response(content=r.content, media_type="image/jpeg")
+
 
 @app.get("/api/config")
 async def get_config():
@@ -863,16 +958,15 @@ async def get_config_options():
     radarr_profiles, radarr_roots, sonarr_profiles, sonarr_roots = responses
     return {
         "radarrProfiles": [
-            {"id": item.get("id"), "name": item.get("name")}
-            for item in radarr_profiles
+            {"id": item.get("id"), "name": item.get("name")} for item in radarr_profiles
         ],
         "radarrRoots": [item.get("path") for item in radarr_roots if item.get("path")],
         "sonarrProfiles": [
-            {"id": item.get("id"), "name": item.get("name")}
-            for item in sonarr_profiles
+            {"id": item.get("id"), "name": item.get("name")} for item in sonarr_profiles
         ],
         "sonarrRoots": [item.get("path") for item in sonarr_roots if item.get("path")],
     }
+
 
 @app.get("/api/latest-release")
 async def get_latest_release():
@@ -882,7 +976,7 @@ async def get_latest_release():
             r = await client.get(
                 "https://api.github.com/repos/PIR8-Software/tv-tenderr/releases/latest",
                 headers={"Accept": "application/vnd.github.v3+json"},
-                timeout=10
+                timeout=10,
             )
             if r.status_code == 200:
                 data = r.json()
@@ -894,33 +988,44 @@ async def get_latest_release():
                     "body": data.get("body", ""),
                     "htmlUrl": data.get("html_url"),
                     "publishedAt": data.get("published_at"),
-                    "downloadUrl": f"https://github.com/PIR8-Software/tv-tenderr/releases/latest/download/app-release.apk",
+                    "downloadUrl": "https://github.com/PIR8-Software/tv-tenderr/releases/latest/download/app-release.apk",
                 }
             else:
                 return {"error": f"GitHub API returned {r.status_code}"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - GitHub update-check boundary
             return {"error": str(e)}
+
 
 @app.post("/api/config")
 async def update_config(config: dict):
     """Update memory and atomically persist non-empty settings. Never mint a token."""
     if not configured_api_token() and not str(config.get("apiToken") or "").strip():
-        raise HTTPException(status_code=400, detail="First-run setup requires a new API token")
+        raise HTTPException(
+            status_code=400, detail="First-run setup requires a new API token"
+        )
     return persist_config(config)
+
 
 # ==================== SONARR SHOW ENDPOINTS ====================
 
+
 @app.get("/api/shows")
-async def get_shows(skip: int = 0, limit: int = 50, genre: str = "", min_year: int = 0, max_year: int = 0, min_rating: float = 0, search: str = ""):
+async def get_shows(
+    skip: int = 0,
+    limit: int = 50,
+    genre: str = "",
+    min_year: int = 0,
+    max_year: int = 0,
+    min_rating: float = 0,
+    search: str = "",
+):
     """Get TV shows from Sonarr with metadata."""
     decisions = load_show_decisions()
     watched = get_plex_watched_titles("show")
 
     async with httpx.AsyncClient() as client:
         r = await client.get(
-            f"{SONARR_URL}/api/v3/series",
-            headers={"X-Api-Key": SONARR_KEY},
-            timeout=30
+            f"{SONARR_URL}/api/v3/series", headers={"X-Api-Key": SONARR_KEY}, timeout=30
         )
         r.raise_for_status()
         sonarr_shows = r.json()
@@ -936,28 +1041,41 @@ async def get_shows(skip: int = 0, limit: int = 50, genre: str = "", min_year: i
 
     # Apply filters
     if genre:
-        eligible = [s for s in eligible if genre.lower() in [g.lower() if isinstance(g, str) else g.get("name","").lower() for g in s.get("genres", [])]]
+        eligible = [
+            s
+            for s in eligible
+            if genre.lower()
+            in [
+                g.lower() if isinstance(g, str) else g.get("name", "").lower()
+                for g in s.get("genres", [])
+            ]
+        ]
     if min_year:
         eligible = [s for s in eligible if s.get("year", 0) >= min_year]
     if max_year:
         eligible = [s for s in eligible if s.get("year", 0) <= max_year]
     if min_rating:
-        eligible = [s for s in eligible if (s.get("ratings", {}).get("value", 0) or 0) >= min_rating]
+        eligible = [
+            s
+            for s in eligible
+            if (s.get("ratings", {}).get("value", 0) or 0) >= min_rating
+        ]
     if search:
         search_lower = search.lower()
         eligible = [s for s in eligible if search_lower in s.get("title", "").lower()]
 
     random.shuffle(eligible)
-    batch = eligible[skip:skip+limit]
+    batch = eligible[skip : skip + limit]
 
     # Fetch cast only for the current batch
     async with httpx.AsyncClient() as client:
         import asyncio
+
         cast_tasks = [get_tmdb_cast_by_tvdb(client, s.get("tvdbId")) for s in batch]
         cast_results = await asyncio.gather(*cast_tasks)
 
     shows = []
-    for s, cast in zip(batch, cast_results):
+    for s, cast in zip(batch, cast_results, strict=False):
         show_id = str(s["id"])
 
         # Calculate total size and episode count
@@ -977,24 +1095,27 @@ async def get_shows(skip: int = 0, limit: int = 50, genre: str = "", min_year: i
                 poster_url = img.get("remoteUrl") or img.get("url")
                 break
 
-        shows.append({
-            "id": s["id"],
-            "title": s["title"],
-            "year": s.get("year"),
-            "overview": s.get("overview", ""),
-            "genres": s.get("genres", []),
-            "rating": s.get("ratings", {}).get("value"),
-            "seasonCount": len(s.get("seasons", [])),
-            "episodeCount": episode_count,
-            "sizeGB": size_gb,
-            "posterUrl": poster_url,
-            "status": s.get("status"),
-            "monitored": s.get("monitored", False),
-            "network": s.get("network"),
-            "cast": cast,
-            "watched": f"{s['title'].lower().strip()}|{s.get('year', '')}" in watched,
-            "imdbId": s.get("imdbId"),
-        })
+        shows.append(
+            {
+                "id": s["id"],
+                "title": s["title"],
+                "year": s.get("year"),
+                "overview": s.get("overview", ""),
+                "genres": s.get("genres", []),
+                "rating": s.get("ratings", {}).get("value"),
+                "seasonCount": len(s.get("seasons", [])),
+                "episodeCount": episode_count,
+                "sizeGB": size_gb,
+                "posterUrl": poster_url,
+                "status": s.get("status"),
+                "monitored": s.get("monitored", False),
+                "network": s.get("network"),
+                "cast": cast,
+                "watched": f"{s['title'].lower().strip()}|{s.get('year', '')}"
+                in watched,
+                "imdbId": s.get("imdbId"),
+            }
+        )
 
     return {"shows": shows, "total": len(eligible)}
 
@@ -1009,7 +1130,7 @@ async def keep_show(show_id: int):
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code == 200:
             s = r.json()
@@ -1027,7 +1148,7 @@ async def keep_show(show_id: int):
     decisions[str(show_id)] = {
         "action": "keep",
         "timestamp": datetime.now().isoformat(),
-        **show_info
+        **show_info,
     }
     save_show_decisions(decisions)
     return {"ok": True, "action": "keep"}
@@ -1043,7 +1164,7 @@ async def super_keep_show(show_id: int):
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code == 200:
             s = r.json()
@@ -1061,7 +1182,7 @@ async def super_keep_show(show_id: int):
     decisions[str(show_id)] = {
         "action": "super_keep",
         "timestamp": datetime.now().isoformat(),
-        **show_info
+        **show_info,
     }
     save_show_decisions(decisions)
     return {"ok": True, "action": "super_keep"}
@@ -1077,13 +1198,18 @@ async def block_show(show_id: int):
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail="Failed to get series before block")
+            raise HTTPException(
+                status_code=r.status_code, detail="Failed to get series before block"
+            )
         s = r.json()
         if not s.get("tvdbId"):
-            raise HTTPException(status_code=502, detail="Show has no TVDb ID for restore; block cancelled")
+            raise HTTPException(
+                status_code=502,
+                detail="Show has no TVDb ID for restore; block cancelled",
+            )
         poster_url = None
         for img in s.get("images", []):
             if img.get("coverType") == "poster":
@@ -1101,15 +1227,17 @@ async def block_show(show_id: int):
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
             params={"deleteFiles": "true", "addImportListExclusion": "true"},
-            timeout=30
+            timeout=30,
         )
         if r.status_code not in (200, 204):
-            raise HTTPException(status_code=r.status_code, detail=f"Sonarr delete failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Sonarr delete failed: {r.text}"
+            )
 
     decisions[str(show_id)] = {
         "action": "block",
         "timestamp": datetime.now().isoformat(),
-        **show_info
+        **show_info,
     }
     save_show_decisions(decisions)
     return {"ok": True, "action": "block"}
@@ -1141,6 +1269,7 @@ async def unkeep_show(show_id: int):
         return {"ok": True, "action": "unkeep"}
     raise HTTPException(status_code=404, detail="No keep decision found")
 
+
 @app.post("/api/shows/{show_id}/unblock")
 async def unblock_show(show_id: int):
     """Re-add a blocked show to Sonarr, then remove its block decision."""
@@ -1160,8 +1289,18 @@ async def unblock_show(show_id: int):
             timeout=30,
         )
         if exclusions.status_code != 200:
-            raise HTTPException(status_code=exclusions.status_code, detail="Sonarr exclusion lookup failed")
-        match = next((item for item in exclusions.json() if str(item.get("tvdbId")) == str(tvdb_id)), None)
+            raise HTTPException(
+                status_code=exclusions.status_code,
+                detail="Sonarr exclusion lookup failed",
+            )
+        match = next(
+            (
+                item
+                for item in exclusions.json()
+                if str(item.get("tvdbId")) == str(tvdb_id)
+            ),
+            None,
+        )
         if match:
             removed = await client.delete(
                 f"{SONARR_URL}/api/v3/importlistexclusion/{match['id']}",
@@ -1169,7 +1308,10 @@ async def unblock_show(show_id: int):
                 timeout=30,
             )
             if removed.status_code not in (200, 202, 204, 404):
-                raise HTTPException(status_code=removed.status_code, detail="Sonarr exclusion removal failed")
+                raise HTTPException(
+                    status_code=removed.status_code,
+                    detail="Sonarr exclusion removal failed",
+                )
 
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/lookup",
@@ -1198,11 +1340,14 @@ async def unblock_show(show_id: int):
             timeout=30,
         )
         if r.status_code not in (200, 201):
-            raise HTTPException(status_code=r.status_code, detail=f"Sonarr add failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Sonarr add failed: {r.text}"
+            )
 
     del decisions[sid]
     save_show_decisions(decisions)
     return {"ok": True, "action": "unblock", "title": show_data["title"]}
+
 
 @app.post("/api/shows/{show_id}/clean")
 async def clean_show(show_id: int):
@@ -1214,10 +1359,12 @@ async def clean_show(show_id: int):
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail="Failed to get series before clean")
+            raise HTTPException(
+                status_code=r.status_code, detail="Failed to get series before clean"
+            )
         show_info = {}
         if r.status_code == 200:
             s = r.json()
@@ -1237,10 +1384,12 @@ async def clean_show(show_id: int):
             f"{SONARR_URL}/api/v3/episodefile",
             headers={"X-Api-Key": SONARR_KEY},
             params={"seriesId": show_id},
-            timeout=30
+            timeout=30,
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail="Failed to get episode files")
+            raise HTTPException(
+                status_code=r.status_code, detail="Failed to get episode files"
+            )
 
         files = r.json()
         deleted = 0
@@ -1250,10 +1399,13 @@ async def clean_show(show_id: int):
             dr = await client.delete(
                 f"{SONARR_URL}/api/v3/episodefile/{f['id']}",
                 headers={"X-Api-Key": SONARR_KEY},
-                timeout=15
+                timeout=15,
             )
             if dr.status_code not in (200, 204):
-                raise HTTPException(status_code=dr.status_code, detail=f"Episode file delete failed after {deleted} deletes; retry clean to finish")
+                raise HTTPException(
+                    status_code=dr.status_code,
+                    detail=f"Episode file delete failed after {deleted} deletes; retry clean to finish",
+                )
             deleted += 1
 
         # Unmonitor all episodes so they don't re-download
@@ -1261,10 +1413,12 @@ async def clean_show(show_id: int):
             f"{SONARR_URL}/api/v3/episode",
             headers={"X-Api-Key": SONARR_KEY},
             params={"seriesId": show_id},
-            timeout=30
+            timeout=30,
         )
         if er.status_code != 200:
-            raise HTTPException(status_code=er.status_code, detail="Failed to list episodes for clean")
+            raise HTTPException(
+                status_code=er.status_code, detail="Failed to list episodes for clean"
+            )
         episodes = er.json()
         for ep in episodes:
             if ep.get("monitored"):
@@ -1273,29 +1427,36 @@ async def clean_show(show_id: int):
                     f"{SONARR_URL}/api/v3/episode/{ep['id']}",
                     headers={"X-Api-Key": SONARR_KEY},
                     json=ep,
-                    timeout=15
+                    timeout=15,
                 )
                 if put.status_code not in (200, 202):
-                    raise HTTPException(status_code=put.status_code, detail="Failed to unmonitor episode")
+                    raise HTTPException(
+                        status_code=put.status_code,
+                        detail="Failed to unmonitor episode",
+                    )
 
         # Make sure show stays monitored (for future episodes)
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail="Failed to reload series after clean")
+            raise HTTPException(
+                status_code=r.status_code, detail="Failed to reload series after clean"
+            )
         show = r.json()
         show["monitored"] = True
         put = await client.put(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
             json=show,
-            timeout=15
+            timeout=15,
         )
         if put.status_code not in (200, 202):
-            raise HTTPException(status_code=put.status_code, detail="Failed to keep series monitored")
+            raise HTTPException(
+                status_code=put.status_code, detail="Failed to keep series monitored"
+            )
 
     # Log the clean action
     decisions[str(show_id)] = {
@@ -1303,11 +1464,16 @@ async def clean_show(show_id: int):
         "timestamp": datetime.now().isoformat(),
         "deletedFiles": deleted,
         "freedGB": round(total_size / (1024**3), 2),
-        **show_info
+        **show_info,
     }
     save_show_decisions(decisions)
 
-    return {"ok": True, "deleted": deleted, "total": len(files), "freedGB": round(total_size / (1024**3), 2)}
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "total": len(files),
+        "freedGB": round(total_size / (1024**3), 2),
+    }
 
 
 @app.post("/api/shows/{show_id}/unclean")
@@ -1321,10 +1487,13 @@ async def unclean_show(show_id: int):
             f"{SONARR_URL}/api/v3/episode",
             headers={"X-Api-Key": SONARR_KEY},
             params={"seriesId": show_id},
-            timeout=30
+            timeout=30,
         )
         if er.status_code != 200:
-            raise HTTPException(status_code=er.status_code, detail="Failed to list episodes for re-monitor")
+            raise HTTPException(
+                status_code=er.status_code,
+                detail="Failed to list episodes for re-monitor",
+            )
         re_monitored = 0
         episodes = er.json()
         for ep in episodes:
@@ -1334,10 +1503,13 @@ async def unclean_show(show_id: int):
                     f"{SONARR_URL}/api/v3/episode/{ep['id']}",
                     headers={"X-Api-Key": SONARR_KEY},
                     json=ep,
-                    timeout=15
+                    timeout=15,
                 )
                 if put.status_code not in (200, 202):
-                    raise HTTPException(status_code=put.status_code, detail="Failed to re-monitor episode")
+                    raise HTTPException(
+                        status_code=put.status_code,
+                        detail="Failed to re-monitor episode",
+                    )
                 re_monitored += 1
 
     # Remove clean decision
@@ -1358,11 +1530,11 @@ async def get_show_history():
     # Look up missing titles from Sonarr
     async with httpx.AsyncClient() as client:
         r = await client.get(
-            f"{SONARR_URL}/api/v3/series",
-            headers={"X-Api-Key": SONARR_KEY},
-            timeout=30
+            f"{SONARR_URL}/api/v3/series", headers={"X-Api-Key": SONARR_KEY}, timeout=30
         )
-        sonarr_shows = {str(s["id"]): s for s in r.json()} if r.status_code == 200 else {}
+        sonarr_shows = (
+            {str(s["id"]): s for s in r.json()} if r.status_code == 200 else {}
+        )
 
     for sid, info in decisions.items():
         title = info.get("title")
@@ -1378,19 +1550,21 @@ async def get_show_history():
                     poster = img.get("remoteUrl") or img.get("url")
                     break
 
-        history.append({
-            # History clients share one model for movies and shows. Keep showId
-            # for API clarity, but also provide the common id field they use.
-            "movieId": int(sid),
-            "showId": int(sid),
-            "action": info.get("action"),
-            "timestamp": info.get("timestamp"),
-            "title": title,
-            "year": history_year(year),
-            "posterUrl": poster,
-            "deletedFiles": info.get("deletedFiles"),
-            "freedGB": info.get("freedGB"),
-        })
+        history.append(
+            {
+                # History clients share one model for movies and shows. Keep showId
+                # for API clarity, but also provide the common id field they use.
+                "movieId": int(sid),
+                "showId": int(sid),
+                "action": info.get("action"),
+                "timestamp": info.get("timestamp"),
+                "title": title,
+                "year": history_year(year),
+                "posterUrl": poster,
+                "deletedFiles": info.get("deletedFiles"),
+                "freedGB": info.get("freedGB"),
+            }
+        )
 
     # Filter out skips
     history = [h for h in history if h.get("action") != "skip"]
@@ -1408,29 +1582,33 @@ async def plex_refresh():
         r = await client.get(
             f"{PLEX_URL}/library/sections/all/refresh",
             headers={"X-Plex-Token": PLEX_TOKEN},
-            timeout=15
+            timeout=15,
         )
 
     return {"ok": True, "status": r.status_code}
 
 
-
 def get_existing_movie_tmdb_ids():
     """Get TMDb IDs of all movies in Radarr."""
-    try:
+    with suppress(Exception):
         import httpx as _httpx
-        r = _httpx.get(f"{RADARR_URL}/api/v3/movie", headers={"X-Api-Key": RADARR_KEY}, timeout=30)
+
+        r = _httpx.get(
+            f"{RADARR_URL}/api/v3/movie", headers={"X-Api-Key": RADARR_KEY}, timeout=30
+        )
         if r.status_code == 200:
             return {str(m.get("tmdbId")) for m in r.json() if m.get("tmdbId")}
-    except:
-        pass
     return set()
+
 
 def get_existing_show_titles():
     """Get normalized titles of all shows in Sonarr."""
-    try:
+    with suppress(Exception):
         import httpx as _httpx
-        r = _httpx.get(f"{SONARR_URL}/api/v3/series", headers={"X-Api-Key": SONARR_KEY}, timeout=30)
+
+        r = _httpx.get(
+            f"{SONARR_URL}/api/v3/series", headers={"X-Api-Key": SONARR_KEY}, timeout=30
+        )
         if r.status_code == 200:
             titles = set()
             for s in r.json():
@@ -1438,9 +1616,8 @@ def get_existing_show_titles():
                 year = s.get("year", "")
                 titles.add(f"{title}|{year}")
             return titles
-    except:
-        pass
     return set()
+
 
 # ==================== TMDB DISCOVER ENDPOINTS ====================
 
@@ -1451,11 +1628,14 @@ RADARR_ROOT_FOLDER = os.getenv("RADARR_ROOT_FOLDER", "H:\\")
 SONARR_ROOT_FOLDER = os.getenv("SONARR_ROOT_FOLDER", "I:\\TV")
 HIDDEN_FILE = DATA_DIR / "hidden_discover.json"
 
+
 def load_hidden():
     return load_json_store(HIDDEN_FILE)
 
+
 def save_hidden(hidden):
     save_json_store(HIDDEN_FILE, hidden)
+
 
 @app.get("/api/providers")
 async def get_providers():
@@ -1463,36 +1643,53 @@ async def get_providers():
     async with httpx.AsyncClient() as client:
         movie_r = await client.get(
             f"https://api.themoviedb.org/3/watch/providers/movie?api_key={TMDB_KEY}&region=US&watch_region=US",
-            timeout=15
+            timeout=15,
         )
         tv_r = await client.get(
             f"https://api.themoviedb.org/3/watch/providers/tv?api_key={TMDB_KEY}&region=US&watch_region=US",
-            timeout=15
+            timeout=15,
         )
 
     movie_providers = []
     if movie_r.status_code == 200:
         for p in movie_r.json().get("results", []):
-            movie_providers.append({
-                "id": p["provider_id"],
-                "name": p["provider_name"],
-                "logo": f"https://image.tmdb.org/t/p/original{p['logo_path']}" if p.get("logo_path") else None,
-            })
+            movie_providers.append(
+                {
+                    "id": p["provider_id"],
+                    "name": p["provider_name"],
+                    "logo": (
+                        f"https://image.tmdb.org/t/p/original{p['logo_path']}"
+                        if p.get("logo_path")
+                        else None
+                    ),
+                }
+            )
 
     tv_providers = []
     if tv_r.status_code == 200:
         for p in tv_r.json().get("results", []):
-            tv_providers.append({
-                "id": p["provider_id"],
-                "name": p["provider_name"],
-                "logo": f"https://image.tmdb.org/t/p/original{p['logo_path']}" if p.get("logo_path") else None,
-            })
+            tv_providers.append(
+                {
+                    "id": p["provider_id"],
+                    "name": p["provider_name"],
+                    "logo": (
+                        f"https://image.tmdb.org/t/p/original{p['logo_path']}"
+                        if p.get("logo_path")
+                        else None
+                    ),
+                }
+            )
 
     return {"movie_providers": movie_providers, "tv_providers": tv_providers}
 
 
 @app.get("/api/discover/movies")
-async def discover_movies(page: int = 1, limit: int = 20, providers: str = "", sort_by: str = "popularity.desc"):
+async def discover_movies(
+    page: int = 1,
+    limit: int = 20,
+    providers: str = "",
+    sort_by: str = "popularity.desc",
+):
     """Discover movies from TMDb, optionally filtered by streaming providers."""
     hidden = load_hidden()
     existing_ids = get_existing_movie_tmdb_ids()
@@ -1514,7 +1711,9 @@ async def discover_movies(page: int = 1, limit: int = 20, providers: str = "", s
                 params["with_watch_providers"] = providers
                 params["with_watch_monetization_types"] = "flatrate|free|ads"
 
-            r = await client.get("https://api.themoviedb.org/3/discover/movie", params=params, timeout=15)
+            r = await client.get(
+                "https://api.themoviedb.org/3/discover/movie", params=params, timeout=15
+            )
             if r.status_code != 200:
                 break
             data = r.json()
@@ -1524,20 +1723,30 @@ async def discover_movies(page: int = 1, limit: int = 20, providers: str = "", s
                 if str(tmdb_id) in hidden or str(tmdb_id) in existing_ids:
                     continue
 
-                poster_url = f"https://image.tmdb.org/t/p/w500{m['poster_path']}" if m.get("poster_path") else None
-                backdrop_url = f"https://image.tmdb.org/t/p/w780{m['backdrop_path']}" if m.get("backdrop_path") else None
+                poster_url = (
+                    f"https://image.tmdb.org/t/p/w500{m['poster_path']}"
+                    if m.get("poster_path")
+                    else None
+                )
+                backdrop_url = (
+                    f"https://image.tmdb.org/t/p/w780{m['backdrop_path']}"
+                    if m.get("backdrop_path")
+                    else None
+                )
 
-                movies.append({
-                    "tmdbId": tmdb_id,
-                    "title": m["title"],
-                    "year": m.get("release_date", "")[:4] or None,
-                    "overview": m.get("overview", ""),
-                    "rating": m.get("vote_average"),
-                    "posterUrl": poster_url,
-                    "backdropUrl": backdrop_url,
-                    "cast": [],
-                    "releaseDate": m.get("release_date"),
-                })
+                movies.append(
+                    {
+                        "tmdbId": tmdb_id,
+                        "title": m["title"],
+                        "year": m.get("release_date", "")[:4] or None,
+                        "overview": m.get("overview", ""),
+                        "rating": m.get("vote_average"),
+                        "posterUrl": poster_url,
+                        "backdropUrl": backdrop_url,
+                        "cast": [],
+                        "releaseDate": m.get("release_date"),
+                    }
+                )
 
                 if len(movies) >= limit:
                     break
@@ -1547,16 +1756,22 @@ async def discover_movies(page: int = 1, limit: int = 20, providers: str = "", s
         # Fetch cast for the final batch of discover movies
         final_movies = movies[:limit]
         import asyncio
+
         cast_tasks = [get_tmdb_cast(client, m["tmdbId"], "movie") for m in final_movies]
         cast_results = await asyncio.gather(*cast_tasks)
-        for m, cast in zip(final_movies, cast_results):
+        for m, cast in zip(final_movies, cast_results, strict=False):
             m["cast"] = cast
 
     return {"movies": final_movies, "total": 10000, "page": page}
 
 
 @app.get("/api/discover/shows")
-async def discover_shows(page: int = 1, limit: int = 20, providers: str = "", sort_by: str = "popularity.desc"):
+async def discover_shows(
+    page: int = 1,
+    limit: int = 20,
+    providers: str = "",
+    sort_by: str = "popularity.desc",
+):
     """Discover TV shows from TMDb, optionally filtered by streaming providers."""
     hidden = load_hidden()
     existing_titles = get_existing_show_titles()
@@ -1578,7 +1793,9 @@ async def discover_shows(page: int = 1, limit: int = 20, providers: str = "", so
                 params["with_watch_providers"] = providers
                 params["with_watch_monetization_types"] = "flatrate|free|ads"
 
-            r = await client.get("https://api.themoviedb.org/3/discover/tv", params=params, timeout=15)
+            r = await client.get(
+                "https://api.themoviedb.org/3/discover/tv", params=params, timeout=15
+            )
             if r.status_code != 200:
                 break
             data = r.json()
@@ -1591,20 +1808,30 @@ async def discover_shows(page: int = 1, limit: int = 20, providers: str = "", so
                 if show_key in existing_titles:
                     continue
 
-                poster_url = f"https://image.tmdb.org/t/p/w500{s['poster_path']}" if s.get("poster_path") else None
-                backdrop_url = f"https://image.tmdb.org/t/p/w780{s['backdrop_path']}" if s.get("backdrop_path") else None
+                poster_url = (
+                    f"https://image.tmdb.org/t/p/w500{s['poster_path']}"
+                    if s.get("poster_path")
+                    else None
+                )
+                backdrop_url = (
+                    f"https://image.tmdb.org/t/p/w780{s['backdrop_path']}"
+                    if s.get("backdrop_path")
+                    else None
+                )
 
-                shows.append({
-                    "tmdbId": tmdb_id,
-                    "title": s["name"],
-                    "year": s.get("first_air_date", "")[:4] or None,
-                    "overview": s.get("overview", ""),
-                    "rating": s.get("vote_average"),
-                    "posterUrl": poster_url,
-                    "backdropUrl": backdrop_url,
-                    "cast": [],
-                    "firstAirDate": s.get("first_air_date"),
-                })
+                shows.append(
+                    {
+                        "tmdbId": tmdb_id,
+                        "title": s["name"],
+                        "year": s.get("first_air_date", "")[:4] or None,
+                        "overview": s.get("overview", ""),
+                        "rating": s.get("vote_average"),
+                        "posterUrl": poster_url,
+                        "backdropUrl": backdrop_url,
+                        "cast": [],
+                        "firstAirDate": s.get("first_air_date"),
+                    }
+                )
 
                 if len(shows) >= limit:
                     break
@@ -1614,17 +1841,19 @@ async def discover_shows(page: int = 1, limit: int = 20, providers: str = "", so
         # Fetch cast for the final batch of discover shows
         final_shows = shows[:limit]
         import asyncio
+
         cast_tasks = [get_tmdb_cast(client, s["tmdbId"], "tv") for s in final_shows]
         cast_results = await asyncio.gather(*cast_tasks)
-        for s, cast in zip(final_shows, cast_results):
+        for s, cast in zip(final_shows, cast_results, strict=False):
             s["cast"] = cast
 
     return {"shows": final_shows, "total": 10000, "page": page}
 
 
 @app.post("/api/discover/{tmdb_id}/dislike")
-async def dislike_discover(tmdb_id: int, body: dict = {}):
+async def dislike_discover(tmdb_id: int, body: dict | None = None):
     """Hide a disliked discover item and prevent import lists from re-adding it."""
+    body = {} if body is None else body
     media_type = body.get("type", "movie")
     title = body.get("title")
     year = body.get("year")
@@ -1634,7 +1863,11 @@ async def dislike_discover(tmdb_id: int, body: dict = {}):
             r = await client.post(
                 f"{RADARR_URL}/api/v3/exclusions",
                 headers={"X-Api-Key": RADARR_KEY},
-                json={"tmdbId": tmdb_id, "movieTitle": title, "movieYear": int(year or 0)},
+                json={
+                    "tmdbId": tmdb_id,
+                    "movieTitle": title,
+                    "movieYear": int(year or 0),
+                },
                 timeout=30,
             )
             exclusion_id = None
@@ -1651,12 +1884,25 @@ async def dislike_discover(tmdb_id: int, body: dict = {}):
                 )
                 match = None
                 if existing.status_code == 200:
-                    match = next((item for item in existing.json() if item.get("tmdbId") == tmdb_id), None)
+                    match = next(
+                        (
+                            item
+                            for item in existing.json()
+                            if item.get("tmdbId") == tmdb_id
+                        ),
+                        None,
+                    )
                 if not match:
-                    raise HTTPException(status_code=400, detail=f"Radarr exclusion failed: {original_error}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Radarr exclusion failed: {original_error}",
+                    )
                 exclusion_id = match.get("id")
             else:
-                raise HTTPException(status_code=r.status_code, detail=f"Radarr exclusion failed: {r.text}")
+                raise HTTPException(
+                    status_code=r.status_code,
+                    detail=f"Radarr exclusion failed: {r.text}",
+                )
             exclusion_metadata["exclusionSource"] = "radarr"
             if exclusion_id is not None:
                 exclusion_metadata["exclusionId"] = exclusion_id
@@ -1690,13 +1936,28 @@ async def dislike_discover(tmdb_id: int, body: dict = {}):
                 )
                 match = None
                 if existing.status_code == 200:
-                    match = next((item for item in existing.json() if item.get("tvdbId") == show["tvdbId"]), None)
+                    match = next(
+                        (
+                            item
+                            for item in existing.json()
+                            if item.get("tvdbId") == show["tvdbId"]
+                        ),
+                        None,
+                    )
                 if not match:
-                    raise HTTPException(status_code=400, detail=f"Sonarr exclusion failed: {original_error}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Sonarr exclusion failed: {original_error}",
+                    )
                 exclusion_id = match.get("id")
             else:
-                raise HTTPException(status_code=r.status_code, detail=f"Sonarr exclusion failed: {r.text}")
-            exclusion_metadata.update({"exclusionSource": "sonarr", "tvdbId": show["tvdbId"]})
+                raise HTTPException(
+                    status_code=r.status_code,
+                    detail=f"Sonarr exclusion failed: {r.text}",
+                )
+            exclusion_metadata.update(
+                {"exclusionSource": "sonarr", "tvdbId": show["tvdbId"]}
+            )
             if exclusion_id is not None:
                 exclusion_metadata["exclusionId"] = exclusion_id
         else:
@@ -1718,8 +1979,9 @@ async def dislike_discover(tmdb_id: int, body: dict = {}):
 
 
 @app.post("/api/discover/{tmdb_id}/hide")
-async def hide_discover(tmdb_id: int, body: dict = {}):
+async def hide_discover(tmdb_id: int, body: dict | None = None):
     """Hide a discover item so it doesn't show again."""
+    body = {} if body is None else body
     hidden = load_hidden()
     hidden[str(tmdb_id)] = {
         "action": body.get("action", "hidden"),
@@ -1743,7 +2005,7 @@ async def add_movie_from_discover(tmdb_id: int):
             f"{RADARR_URL}/api/v3/movie/lookup",
             headers={"X-Api-Key": RADARR_KEY},
             params={"term": f"tmdb:{tmdb_id}"},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200 or not r.json():
             raise HTTPException(status_code=404, detail="Movie not found")
@@ -1764,10 +2026,12 @@ async def add_movie_from_discover(tmdb_id: int):
             f"{RADARR_URL}/api/v3/movie",
             headers={"X-Api-Key": RADARR_KEY},
             json=add_payload,
-            timeout=30
+            timeout=30,
         )
         if r.status_code not in (200, 201):
-            raise HTTPException(status_code=r.status_code, detail=f"Radarr add failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Radarr add failed: {r.text}"
+            )
 
     # Hide from discover
     hidden = load_hidden()
@@ -1776,7 +2040,11 @@ async def add_movie_from_discover(tmdb_id: int):
         "timestamp": datetime.now().isoformat(),
         "title": movie_data.get("title"),
         "year": movie_data.get("year"),
-        "posterUrl": f"https://image.tmdb.org/t/p/w500{movie_data.get('images', [{}])[0].get('coverUrl', '').split('?')[0].replace('/MediaCover/', '')}" if movie_data.get("images") else None,
+        "posterUrl": (
+            f"https://image.tmdb.org/t/p/w500{movie_data.get('images', [{}])[0].get('coverUrl', '').split('?')[0].replace('/MediaCover/', '')}"
+            if movie_data.get("images")
+            else None
+        ),
         "type": "movie",
     }
     save_hidden(hidden)
@@ -1793,7 +2061,7 @@ async def add_show_from_discover(tmdb_id: int):
             f"{SONARR_URL}/api/v3/series/lookup",
             headers={"X-Api-Key": SONARR_KEY},
             params={"term": f"tmdb:{tmdb_id}"},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200 or not r.json():
             raise HTTPException(status_code=404, detail="Show not found")
@@ -1816,10 +2084,12 @@ async def add_show_from_discover(tmdb_id: int):
             f"{SONARR_URL}/api/v3/series",
             headers={"X-Api-Key": SONARR_KEY},
             json=add_payload,
-            timeout=30
+            timeout=30,
         )
         if r.status_code not in (200, 201):
-            raise HTTPException(status_code=r.status_code, detail=f"Sonarr add failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Sonarr add failed: {r.text}"
+            )
 
     # Hide from discover
     hidden = load_hidden()
@@ -1850,32 +2120,38 @@ async def get_discover_history():
 
             # Look up title from TMDb if missing
             if not title:
-                try:
+                with suppress(Exception):
                     endpoint = "movie" if item_type == "movie" else "tv"
                     r = await client.get(
                         f"https://api.themoviedb.org/3/{endpoint}/{tmdb_id}?api_key={TMDB_KEY}",
-                        timeout=10
+                        timeout=10,
                     )
                     if r.status_code == 200:
                         data = r.json()
                         title = data.get("title") or data.get("name")
-                        year = (data.get("release_date") or data.get("first_air_date", ""))[:4] or None
+                        year = (
+                            data.get("release_date") or data.get("first_air_date", "")
+                        )[:4] or None
                         poster_path = data.get("poster_path")
-                        poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
-                except:
-                    pass
+                        poster = (
+                            f"https://image.tmdb.org/t/p/w500{poster_path}"
+                            if poster_path
+                            else None
+                        )
 
-            history.append({
-                # Android uses the shared HistoryItem model for every section.
-                "movieId": int(tmdb_id),
-                "tmdbId": int(tmdb_id),
-                "action": info.get("action", "hidden"),
-                "timestamp": info.get("timestamp"),
-                "title": title,
-                "year": history_year(year),
-                "posterUrl": poster,
-                "type": item_type,
-            })
+            history.append(
+                {
+                    # Android uses the shared HistoryItem model for every section.
+                    "movieId": int(tmdb_id),
+                    "tmdbId": int(tmdb_id),
+                    "action": info.get("action", "hidden"),
+                    "timestamp": info.get("timestamp"),
+                    "title": title,
+                    "year": history_year(year),
+                    "posterUrl": poster,
+                    "type": item_type,
+                }
+            )
 
     history.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
     return {"history": history}
@@ -1900,8 +2176,13 @@ async def unhide_discover(tmdb_id: int):
                 timeout=30,
             )
             if r.status_code != 200:
-                raise HTTPException(status_code=r.status_code, detail=f"Radarr exclusions lookup failed: {r.text}")
-            match = next((item for item in r.json() if item.get("tmdbId") == tmdb_id), None)
+                raise HTTPException(
+                    status_code=r.status_code,
+                    detail=f"Radarr exclusions lookup failed: {r.text}",
+                )
+            match = next(
+                (item for item in r.json() if item.get("tmdbId") == tmdb_id), None
+            )
             if match:
                 r = await client.delete(
                     f"{RADARR_URL}/api/v3/exclusions/{match['id']}",
@@ -1909,7 +2190,10 @@ async def unhide_discover(tmdb_id: int):
                     timeout=30,
                 )
                 if r.status_code not in (200, 202, 204, 404):
-                    raise HTTPException(status_code=r.status_code, detail=f"Radarr exclusion removal failed: {r.text}")
+                    raise HTTPException(
+                        status_code=r.status_code,
+                        detail=f"Radarr exclusion removal failed: {r.text}",
+                    )
     elif exclusion_source == "radarr":
         async with httpx.AsyncClient() as client:
             r = await client.delete(
@@ -1918,7 +2202,10 @@ async def unhide_discover(tmdb_id: int):
                 timeout=30,
             )
         if r.status_code not in (200, 202, 204, 404):
-            raise HTTPException(status_code=r.status_code, detail=f"Radarr exclusion removal failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code,
+                detail=f"Radarr exclusion removal failed: {r.text}",
+            )
     elif exclusion_source == "sonarr" and exclusion_id is None:
         async with httpx.AsyncClient() as client:
             tvdb_id = info.get("tvdbId")
@@ -1930,7 +2217,10 @@ async def unhide_discover(tmdb_id: int):
                     timeout=15,
                 )
                 if r.status_code != 200:
-                    raise HTTPException(status_code=r.status_code, detail=f"Sonarr series lookup failed: {r.text}")
+                    raise HTTPException(
+                        status_code=r.status_code,
+                        detail=f"Sonarr series lookup failed: {r.text}",
+                    )
                 lookup_results = r.json()
                 tvdb_id = lookup_results[0].get("tvdbId") if lookup_results else None
 
@@ -1941,8 +2231,13 @@ async def unhide_discover(tmdb_id: int):
                     timeout=30,
                 )
                 if r.status_code != 200:
-                    raise HTTPException(status_code=r.status_code, detail=f"Sonarr exclusions lookup failed: {r.text}")
-                match = next((item for item in r.json() if item.get("tvdbId") == tvdb_id), None)
+                    raise HTTPException(
+                        status_code=r.status_code,
+                        detail=f"Sonarr exclusions lookup failed: {r.text}",
+                    )
+                match = next(
+                    (item for item in r.json() if item.get("tvdbId") == tvdb_id), None
+                )
                 if match:
                     r = await client.delete(
                         f"{SONARR_URL}/api/v3/importlistexclusion/{match['id']}",
@@ -1950,7 +2245,10 @@ async def unhide_discover(tmdb_id: int):
                         timeout=30,
                     )
                     if r.status_code not in (200, 202, 204, 404):
-                        raise HTTPException(status_code=r.status_code, detail=f"Sonarr exclusion removal failed: {r.text}")
+                        raise HTTPException(
+                            status_code=r.status_code,
+                            detail=f"Sonarr exclusion removal failed: {r.text}",
+                        )
     elif exclusion_source == "sonarr" and exclusion_id is not None:
         async with httpx.AsyncClient() as client:
             r = await client.delete(
@@ -1959,7 +2257,10 @@ async def unhide_discover(tmdb_id: int):
                 timeout=30,
             )
         if r.status_code not in (200, 202, 204, 404):
-            raise HTTPException(status_code=r.status_code, detail=f"Sonarr exclusion removal failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code,
+                detail=f"Sonarr exclusion removal failed: {r.text}",
+            )
 
     del hidden[mid]
     save_hidden(hidden)
@@ -1971,12 +2272,12 @@ async def remove_movie_from_discover(tmdb_id: int):
     """Remove a movie that was added via discover from Radarr."""
     async with httpx.AsyncClient() as client:
         r = await client.get(
-            f"{RADARR_URL}/api/v3/movie",
-            headers={"X-Api-Key": RADARR_KEY},
-            timeout=30
+            f"{RADARR_URL}/api/v3/movie", headers={"X-Api-Key": RADARR_KEY}, timeout=30
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=f"Radarr lookup failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Radarr lookup failed: {r.text}"
+            )
 
         movie = next((m for m in r.json() if m.get("tmdbId") == tmdb_id), None)
         if not movie:
@@ -1986,10 +2287,12 @@ async def remove_movie_from_discover(tmdb_id: int):
             f"{RADARR_URL}/api/v3/movie/{movie['id']}",
             headers={"X-Api-Key": RADARR_KEY},
             params={"deleteFiles": "true"},
-            timeout=15
+            timeout=15,
         )
         if r.status_code not in (200, 202, 204):
-            raise HTTPException(status_code=r.status_code, detail=f"Radarr delete failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Radarr delete failed: {r.text}"
+            )
 
     # Remove from hidden so it shows in discover again
     hidden = load_hidden()
@@ -2009,7 +2312,7 @@ async def remove_show_from_discover(tmdb_id: int):
             f"{SONARR_URL}/api/v3/series/lookup",
             headers={"X-Api-Key": SONARR_KEY},
             params={"term": f"tmdb:{tmdb_id}"},
-            timeout=15
+            timeout=15,
         )
         if r.status_code != 200 or not r.json():
             raise HTTPException(status_code=404, detail="Show lookup failed")
@@ -2019,12 +2322,12 @@ async def remove_show_from_discover(tmdb_id: int):
             raise HTTPException(status_code=400, detail="Show lookup has no tvdbId")
 
         r = await client.get(
-            f"{SONARR_URL}/api/v3/series",
-            headers={"X-Api-Key": SONARR_KEY},
-            timeout=30
+            f"{SONARR_URL}/api/v3/series", headers={"X-Api-Key": SONARR_KEY}, timeout=30
         )
         if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=f"Sonarr lookup failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Sonarr lookup failed: {r.text}"
+            )
 
         show = next((s for s in r.json() if s.get("tvdbId") == tvdb_id), None)
         if not show:
@@ -2034,10 +2337,12 @@ async def remove_show_from_discover(tmdb_id: int):
             f"{SONARR_URL}/api/v3/series/{show['id']}",
             headers={"X-Api-Key": SONARR_KEY},
             params={"deleteFiles": "true"},
-            timeout=15
+            timeout=15,
         )
         if r.status_code not in (200, 202, 204):
-            raise HTTPException(status_code=r.status_code, detail=f"Sonarr delete failed: {r.text}")
+            raise HTTPException(
+                status_code=r.status_code, detail=f"Sonarr delete failed: {r.text}"
+            )
 
     # Remove from hidden
     hidden = load_hidden()
@@ -2053,7 +2358,9 @@ async def remove_show_from_discover(tmdb_id: int):
 async def save_env(config: dict):
     """Persist configuration. Same writer as /api/config; does not mint a token."""
     if not configured_api_token() and not str(config.get("apiToken") or "").strip():
-        raise HTTPException(status_code=400, detail="First-run setup requires a new API token")
+        raise HTTPException(
+            status_code=400, detail="First-run setup requires a new API token"
+        )
     return persist_config(config)
 
 
@@ -2094,16 +2401,28 @@ ENV_KEY_ORDER = [
 def validate_service_url(url):
     parsed = urllib.parse.urlparse(str(url))
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise HTTPException(status_code=400, detail="Service URL must be http or https with a host")
+        raise HTTPException(
+            status_code=400, detail="Service URL must be http or https with a host"
+        )
     if parsed.username or parsed.password:
-        raise HTTPException(status_code=400, detail="Service URL must not include credentials")
+        raise HTTPException(
+            status_code=400, detail="Service URL must not include credentials"
+        )
     return str(url)
 
 
 def read_env_values(path):
     # Use the same parser on write/merge as startup; preserve quoted hashes,
     # backslashes and dollar expressions literally, without interpolation.
-    return {key: value for key, value in dotenv_values(path, interpolate=False).items() if value is not None} if path.exists() else {}
+    return (
+        {
+            key: value
+            for key, value in dotenv_values(path, interpolate=False).items()
+            if value is not None
+        }
+        if path.exists()
+        else {}
+    )
 
 
 def write_env_values(path, values):
@@ -2186,7 +2505,9 @@ def persist_config(config):
                 if number <= 0:
                     raise ValueError()
             except (TypeError, ValueError):
-                raise HTTPException(status_code=400, detail=f"{field} must be a positive integer")
+                raise HTTPException(
+                    status_code=400, detail=f"{field} must be a positive integer"
+                ) from None
             values[env_key] = str(number)
         else:
             values[env_key] = str(config[field])
@@ -2208,7 +2529,7 @@ def token_is_valid(presented: str) -> bool:
     expected = configured_api_token()
     if not expected or not presented:
         return False
-    return hmac.compare_digest(presented.encode('utf-8'), expected.encode('utf-8'))
+    return hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
 
 
 def service_secrets_configured() -> bool:
@@ -2219,7 +2540,10 @@ def service_secrets_configured() -> bool:
         "your_plex_token",
         "your_tmdb_api_key",
     }
-    return any(value and value not in placeholders for value in (RADARR_KEY, SONARR_KEY, PLEX_TOKEN, TMDB_KEY))
+    return any(
+        value and value not in placeholders
+        for value in (RADARR_KEY, SONARR_KEY, PLEX_TOKEN, TMDB_KEY)
+    )
 
 
 def bootstrap_setup_allowed(client_host):
@@ -2233,7 +2557,10 @@ def bootstrap_setup_allowed(client_host):
 def request_is_authorized(request: Request) -> bool:
     if token_is_valid(_presented_token(request)):
         return True
-    if request.method == "POST" and request.url.path in {"/api/save-env", "/api/config"}:
+    if request.method == "POST" and request.url.path in {
+        "/api/save-env",
+        "/api/config",
+    }:
         host = request.client.host if request.client else None
         return bootstrap_setup_allowed(host)
     return False
@@ -2250,7 +2577,9 @@ async def guard_api(request: Request, call_next):
             if not request_is_authorized(request):
                 return JSONResponse({"detail": "unauthorized"}, status_code=401)
             return await call_next(request)
-    if path in {"/docs", "/redoc", "/openapi.json"} and not request_is_authorized(request):
+    if path in {"/docs", "/redoc", "/openapi.json"} and not request_is_authorized(
+        request
+    ):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -2268,8 +2597,16 @@ def assert_data_dir_safe(current, legacy):
             return
     except OSError:
         return
-    legacy_files = [path for path in legacy.glob("*.json") if path.is_file() and path.stat().st_size > 0]
-    current_files = [path for path in current.glob("*.json") if path.is_file() and path.stat().st_size > 0]
+    legacy_files = [
+        path
+        for path in legacy.glob("*.json")
+        if path.is_file() and path.stat().st_size > 0
+    ]
+    current_files = [
+        path
+        for path in current.glob("*.json")
+        if path.is_file() and path.stat().st_size > 0
+    ]
     if legacy_files and not current_files:
         raise SystemExit(
             f"Refusing to boot: {current} has no decision store and an older store exists at {legacy}"
@@ -2278,8 +2615,11 @@ def assert_data_dir_safe(current, legacy):
 
 if __name__ == "__main__":
     import uvicorn
+
     assert_data_dir_safe(DATA_DIR, LEGACY_DATA_DIR)
     bind_host = resolve_bind_host()
     bind_port = resolve_bind_port()
-    print(f"TV Tenderr bind={bind_host}:{bind_port} auth_configured={bool(configured_api_token())}")
+    print(
+        f"TV Tenderr bind={bind_host}:{bind_port} auth_configured={bool(configured_api_token())}"
+    )
     uvicorn.run(app, host=bind_host, port=bind_port)

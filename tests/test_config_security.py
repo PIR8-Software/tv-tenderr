@@ -1,6 +1,6 @@
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 import backend
 
@@ -57,7 +57,9 @@ class ConfigSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["H:\\"], result["radarrRoots"])
         self.assertEqual([{"id": 5, "name": "HD-720p"}], result["sonarrProfiles"])
         self.assertEqual(["I:\\TV"], result["sonarrRoots"])
-        self.assertTrue(all("X-Api-Key" in kwargs["headers"] for _, kwargs in client.requests))
+        self.assertTrue(
+            all("X-Api-Key" in kwargs["headers"] for _, kwargs in client.requests)
+        )
 
     async def test_android_settings_use_safe_backend_options_proxy(self):
         source = (
