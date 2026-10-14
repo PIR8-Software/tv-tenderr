@@ -107,7 +107,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -141,7 +141,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     backend,
                     "save_show_decisions",
-                    side_effect=lambda data: saved.append(dict(data)),
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
                 ),
             ):
                 result = await backend.unkeep_show(44)
@@ -164,7 +164,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -185,7 +185,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     backend,
                     "save_decisions",
-                    side_effect=lambda data: saved.append(dict(data)),
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
                 ),
             ):
                 result = await backend.unkeep_movie(22)
@@ -208,7 +208,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -233,7 +233,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -257,7 +257,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -281,7 +281,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -308,7 +308,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):

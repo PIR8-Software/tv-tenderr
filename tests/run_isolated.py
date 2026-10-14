@@ -26,6 +26,7 @@ with tempfile.TemporaryDirectory(prefix="tv-isolated-") as directory:
     environment["PYTHONPATH"] = str(dest)
     result = subprocess.run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
+        check=False,
         cwd=dest,
         env=environment,
         capture_output=True,
