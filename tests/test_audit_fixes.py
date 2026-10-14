@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-import backend
 from fastapi.testclient import TestClient
 
+import backend
 
 SYNTHETIC_TOKEN = "synthetic-test-token"
 AUTH = {"Authorization": f"Bearer {SYNTHETIC_TOKEN}"}
@@ -107,7 +107,9 @@ class AuthBoundaryTests(unittest.TestCase):
         os.environ[backend.API_TOKEN_ENV] = SYNTHETIC_TOKEN
         self.client = TestClient(backend.app)
         self.upstream = ExplodingAsyncClient()
-        self.patcher = patch.object(backend.httpx, "AsyncClient", return_value=self.upstream)
+        self.patcher = patch.object(
+            backend.httpx, "AsyncClient", return_value=self.upstream
+        )
         self.patcher.start()
 
     def tearDown(self):
@@ -165,7 +167,14 @@ class AuthBoundaryTests(unittest.TestCase):
             with patch.object(backend, "ENV_FILE", env_path):
                 for headers in ({}, {"Authorization": "Bearer wrong-token"}):
                     for route in ("/api/config", "/api/save-env"):
-                        response = self.client.post(route, headers=headers, json={"radarrUrl": "http://attacker.invalid", "apiToken": "injected"})
+                        response = self.client.post(
+                            route,
+                            headers=headers,
+                            json={
+                                "radarrUrl": "http://attacker.invalid",
+                                "apiToken": "injected",
+                            },
+                        )
                         self.assertEqual(401, response.status_code, route)
                         self.assertEqual(initial, env_path.read_text(encoding="utf-8"))
             self.assertEqual([], self.upstream.requests)
@@ -177,26 +186,46 @@ class AuthBoundaryTests(unittest.TestCase):
             self.assertNotEqual(200, response.status_code)
 
     def test_remote_bootstrap_cannot_write_config(self):
-        response = self.client.post("/api/save-env", json={"radarrUrl": "http://evil.example"})
+        response = self.client.post(
+            "/api/save-env", json={"radarrUrl": "http://evil.example"}
+        )
         self.assertEqual(401, response.status_code)
         self.assertEqual([], self.upstream.requests)
 
 
 class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
     async def test_block_requires_recoverable_metadata_before_file_delete(self):
-        for action, identifier in ((backend.block_movie, "tmdbId"), (backend.block_show, "tvdbId")):
-            for response in (FakeResponse(503, text="unavailable"), FakeResponse(200, {"title": "Missing ID", "images": []})):
+        for action, identifier in (
+            (backend.block_movie, "tmdbId"),
+            (backend.block_show, "tvdbId"),
+        ):
+            for response in (
+                FakeResponse(503, text="unavailable"),
+                FakeResponse(200, {"title": "Missing ID", "images": []}),
+            ):
                 client = QueueAsyncClient([response])
                 saved = []
-                loader = "load_decisions" if action == backend.block_movie else "load_show_decisions"
-                saver = "save_decisions" if action == backend.block_movie else "save_show_decisions"
+                loader = (
+                    "load_decisions"
+                    if action == backend.block_movie
+                    else "load_show_decisions"
+                )
+                saver = (
+                    "save_decisions"
+                    if action == backend.block_movie
+                    else "save_show_decisions"
+                )
                 with (
                     patch.object(backend, loader, return_value={}),
-                    patch.object(backend, saver, side_effect=lambda value: saved.append(value)),
+                    patch.object(
+                        backend,
+                        saver,
+                        side_effect=lambda value, saved=saved: saved.append(value),
+                    ),
                     patch.object(backend.httpx, "AsyncClient", return_value=client),
+                    self.assertRaises(backend.HTTPException) as caught,
                 ):
-                    with self.assertRaises(backend.HTTPException) as caught:
-                        await action(44)
+                    await action(44)
                 self.assertIn(caught.exception.status_code, (502, 503), identifier)
                 self.assertEqual(["GET"], [request[0] for request in client.requests])
                 self.assertEqual([], saved)
@@ -207,11 +236,15 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_show_decisions", return_value=decisions),
-            patch.object(backend, "save_show_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_show_decisions",
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException) as caught,
         ):
-            with self.assertRaises(backend.HTTPException) as caught:
-                await backend.unclean_show(44)
+            await backend.unclean_show(44)
         self.assertGreaterEqual(caught.exception.status_code, 400)
         self.assertEqual([], saved)
         self.assertEqual("clean", decisions["44"]["action"])
@@ -227,11 +260,15 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_show_decisions", return_value=decisions),
-            patch.object(backend, "save_show_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_show_decisions",
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.unclean_show(44)
+            await backend.unclean_show(44)
         self.assertEqual([], saved)
         self.assertEqual("clean", decisions["44"]["action"])
 
@@ -247,11 +284,15 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_show_decisions", return_value=decisions),
-            patch.object(backend, "save_show_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_show_decisions",
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.clean_show(44)
+            await backend.clean_show(44)
         self.assertEqual([], saved)
         self.assertNotIn("44", decisions)
 
@@ -260,7 +301,17 @@ class PosterBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_absolute_poster_is_fetched_without_arr_key(self):
         client = QueueAsyncClient(
             [
-                FakeResponse(200, {"images": [{"coverType": "poster", "remoteUrl": "https://image.tmdb.org/t/p/w500/abc.jpg"}]}),
+                FakeResponse(
+                    200,
+                    {
+                        "images": [
+                            {
+                                "coverType": "poster",
+                                "remoteUrl": "https://image.tmdb.org/t/p/w500/abc.jpg",
+                            }
+                        ]
+                    },
+                ),
                 FakeResponse(200, content=b"img"),
             ]
         )
@@ -277,7 +328,14 @@ class PosterBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_relative_poster_keeps_arr_key_and_does_not_follow_redirects(self):
         client = QueueAsyncClient(
             [
-                FakeResponse(200, {"images": [{"coverType": "poster", "url": "/MediaCover/7/poster.jpg"}]}),
+                FakeResponse(
+                    200,
+                    {
+                        "images": [
+                            {"coverType": "poster", "url": "/MediaCover/7/poster.jpg"}
+                        ]
+                    },
+                ),
                 FakeResponse(200, content=b"img"),
             ]
         )
@@ -294,11 +352,25 @@ class PosterBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unlisted_poster_host_is_rejected_without_a_fetch(self):
         client = QueueAsyncClient(
-            [FakeResponse(200, {"images": [{"coverType": "poster", "remoteUrl": "https://evil.example/poster.jpg"}]})]
+            [
+                FakeResponse(
+                    200,
+                    {
+                        "images": [
+                            {
+                                "coverType": "poster",
+                                "remoteUrl": "https://evil.example/poster.jpg",
+                            }
+                        ]
+                    },
+                )
+            ]
         )
-        with patch.object(backend.httpx, "AsyncClient", return_value=client):
-            with self.assertRaises(backend.HTTPException):
-                await backend.get_poster(7)
+        with (
+            patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
+        ):
+            await backend.get_poster(7)
         self.assertEqual(1, len(client.requests))
 
 
@@ -309,8 +381,16 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
             saved = []
             with (
                 patch.object(backend, "load_decisions", return_value=decisions),
-                patch.object(backend, "save_decisions", side_effect=lambda data: saved.append(dict(data))),
-                patch.object(backend.httpx, "AsyncClient", side_effect=AssertionError("skip must not call upstream")),
+                patch.object(
+                    backend,
+                    "save_decisions",
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
+                ),
+                patch.object(
+                    backend.httpx,
+                    "AsyncClient",
+                    side_effect=AssertionError("skip must not call upstream"),
+                ),
             ):
                 result = await backend.skip_movie(9)
             self.assertTrue(result["preserved"])
@@ -322,8 +402,16 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_decisions", return_value=decisions),
-            patch.object(backend, "save_decisions", side_effect=lambda data: saved.append(dict(data))),
-            patch.object(backend.httpx, "AsyncClient", side_effect=AssertionError("skip must not call upstream")),
+            patch.object(
+                backend,
+                "save_decisions",
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
+            ),
+            patch.object(
+                backend.httpx,
+                "AsyncClient",
+                side_effect=AssertionError("skip must not call upstream"),
+            ),
         ):
             result = await backend.skip_movie(9)
         self.assertEqual("skip", result["action"])
@@ -333,12 +421,18 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(backend.is_decision_active(saved[-1]["9"]))
         expired = {
             "action": "skip",
-            "timestamp": (datetime.now() - timedelta(hours=backend.skip_revisit_hours() + 1)).isoformat(),
+            "timestamp": (
+                datetime.now() - timedelta(hours=backend.skip_revisit_hours() + 1)
+            ).isoformat(),
         }
         self.assertFalse(backend.is_decision_active(expired))
 
     def test_clean_stays_out_of_the_swipe_queue(self):
-        self.assertTrue(backend.is_decision_active({"action": "clean", "timestamp": datetime.now().isoformat()}))
+        self.assertTrue(
+            backend.is_decision_active(
+                {"action": "clean", "timestamp": datetime.now().isoformat()}
+            )
+        )
 
 
 class StorageSafetyTests(unittest.IsolatedAsyncioTestCase):
@@ -374,14 +468,22 @@ class ConfigPersistenceTests(unittest.IsolatedAsyncioTestCase):
     async def test_config_write_persists_quality_and_roots_without_leaking_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             env_path = Path(tmp) / ".env"
-            env_path.write_text("TV_TENDERR_API_TOKEN=synthetic-test-token\nRADARR_KEY=keep-me\n", encoding="utf-8")
+            env_path.write_text(
+                "TV_TENDERR_API_TOKEN=synthetic-test-token\nRADARR_KEY=keep-me\n",
+                encoding="utf-8",
+            )
             prior = {
                 "RADARR_URL": backend.RADARR_URL,
                 "RADARR_QUALITY_ID": backend.RADARR_QUALITY_ID,
                 "RADARR_ROOT_FOLDER": backend.RADARR_ROOT_FOLDER,
             }
             try:
-                with patch.object(backend, "ENV_FILE", env_path), patch.dict(os.environ, {backend.API_TOKEN_ENV: 'synthetic-test-token'}):
+                with (
+                    patch.object(backend, "ENV_FILE", env_path),
+                    patch.dict(
+                        os.environ, {backend.API_TOKEN_ENV: "synthetic-test-token"}
+                    ),
+                ):
                     result = await backend.update_config(
                         {
                             "radarrUrl": "http://radarr.test:7878",
@@ -407,10 +509,15 @@ class ConfigPersistenceTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             env_path = Path(tmp) / ".env"
             env_path.write_text("RADARR_URL=http://keep.test\n", encoding="utf-8")
-            with patch.object(backend, "ENV_FILE", env_path), patch.dict(os.environ, {backend.API_TOKEN_ENV: 'synthetic-test-token'}):
-                with self.assertRaises(backend.HTTPException):
-                    await backend.update_config({"radarrUrl": "file:///etc/passwd"})
-            self.assertEqual("RADARR_URL=http://keep.test\n", env_path.read_text(encoding="utf-8"))
+            with (
+                patch.object(backend, "ENV_FILE", env_path),
+                patch.dict(os.environ, {backend.API_TOKEN_ENV: "synthetic-test-token"}),
+                self.assertRaises(backend.HTTPException),
+            ):
+                await backend.update_config({"radarrUrl": "file:///etc/passwd"})
+            self.assertEqual(
+                "RADARR_URL=http://keep.test\n", env_path.read_text(encoding="utf-8")
+            )
 
 
 class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
@@ -420,14 +527,20 @@ class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
             [
                 FakeResponse(200, [{"id": 5, "tmdbId": 12345}]),
                 FakeResponse(200, {}),
-                FakeResponse(200, [{"title": "Test Movie", "tmdbId": 12345, "images": []}]),
+                FakeResponse(
+                    200, [{"title": "Test Movie", "tmdbId": 12345, "images": []}]
+                ),
                 FakeResponse(201, {"id": 66}),
             ]
         )
         saved = []
         with (
             patch.object(backend, "load_decisions", return_value=decisions),
-            patch.object(backend, "save_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_decisions",
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
+            ),
             patch.object(backend, "RADARR_ROOT_FOLDER", "Z:\\Movies"),
             patch.object(backend, "RADARR_QUALITY_ID", 6),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
@@ -449,18 +562,26 @@ class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_decisions", return_value=decisions),
-            patch.object(backend, "save_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_decisions",
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.unblock_movie(22)
+            await backend.unblock_movie(22)
         self.assertEqual([], saved)
         self.assertEqual("block", decisions["22"]["action"])
 
 
 class StatsRouteTests(unittest.IsolatedAsyncioTestCase):
     def test_only_one_stats_route_is_registered(self):
-        matches = [route for route in backend.app.routes if getattr(route, "path", "") == "/api/stats"]
+        matches = [
+            route
+            for route in backend.app.routes
+            if getattr(route, "path", "") == "/api/stats"
+        ]
         self.assertEqual(1, len(matches))
 
     async def test_stats_shape_has_no_decision_dump(self):
@@ -500,7 +621,9 @@ class PlexHeaderTests(unittest.TestCase):
 
 class BindAndReleaseTests(unittest.TestCase):
     def test_bind_defaults_fail_closed_without_a_token(self):
-        with patch.dict(os.environ, {"BACKEND_HOST": "", backend.API_TOKEN_ENV: ""}, clear=False):
+        with patch.dict(
+            os.environ, {"BACKEND_HOST": "", backend.API_TOKEN_ENV: ""}, clear=False
+        ):
             os.environ.pop("BACKEND_HOST", None)
             os.environ.pop(backend.API_TOKEN_ENV, None)
             self.assertEqual("127.0.0.1", backend.resolve_bind_host())
@@ -539,30 +662,47 @@ class YearContractTests(unittest.TestCase):
 
 class WebContractTests(unittest.TestCase):
     def test_web_defers_destructive_actions_and_escapes_titles(self):
-        page = Path(__file__).parents[1].joinpath("web", "index.html").read_text(encoding="utf-8")
+        page = (
+            Path(__file__)
+            .parents[1]
+            .joinpath("web", "index.html")
+            .read_text(encoding="utf-8")
+        )
         self.assertIn("scheduleDestructive", page)
         self.assertIn("DESTRUCTIVE_UNDO_MS = 10000", page)
         self.assertIn("function escapeHtml", page)
         self.assertIn("function apiFetch", page)
         self.assertNotIn('<div class="card-title">${item.title}</div>', page)
         self.assertNotIn('value="${config.radarrKey', page)
-        block = page.split("function singleBlock", 1)[1].split("function singleSkip", 1)[0]
+        block = page.split("function singleBlock", 1)[1].split(
+            "function singleSkip", 1
+        )[0]
         self.assertIn("scheduleLibraryBlock(item.id, type, item.title)", block)
         self.assertNotIn("actionBlock(", block)
-        helper = page.split("function scheduleLibraryBlock", 1)[1].split("function scheduleDiscoverDislike", 1)[0]
-        self.assertLess(helper.index("scheduleDestructive"), helper.index("() => actionBlock("))
+        helper = page.split("function scheduleLibraryBlock", 1)[1].split(
+            "function scheduleDiscoverDislike", 1
+        )[0]
+        self.assertLess(
+            helper.index("scheduleDestructive"), helper.index("() => actionBlock(")
+        )
 
 
 class ClientSourceContractTests(unittest.TestCase):
     def test_android_secrets_are_not_backed_up_in_plaintext_fields(self):
         root = Path(__file__).parents[1]
-        manifest = (root / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
-        settings = (root / "android/app/src/main/res/layout/activity_settings.xml").read_text(encoding="utf-8")
+        manifest = (root / "android/app/src/main/AndroidManifest.xml").read_text(
+            encoding="utf-8"
+        )
+        settings = (
+            root / "android/app/src/main/res/layout/activity_settings.xml"
+        ).read_text(encoding="utf-8")
         self.assertIn('android:allowBackup="false"', manifest)
         self.assertNotIn('android:inputType="text"', settings)
         self.assertIn(
             "EncryptedSharedPreferences",
-            (root / "android/app/src/main/java/com/movieswipe/SecretStore.kt").read_text(encoding="utf-8"),
+            (
+                root / "android/app/src/main/java/com/movieswipe/SecretStore.kt"
+            ).read_text(encoding="utf-8"),
         )
 
 

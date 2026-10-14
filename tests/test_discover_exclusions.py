@@ -39,11 +39,15 @@ class FakeAsyncClient:
 
 
 class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_movie_dislike_records_history_when_radarr_exclusion_already_exists(self):
+    async def test_movie_dislike_records_history_when_radarr_exclusion_already_exists(
+        self,
+    ):
         client = FakeAsyncClient(
             [
                 FakeResponse(400, text="Movie is already excluded"),
-                FakeResponse(200, [{"tmdbId": 12345, "movieTitle": "The Test Movie", "id": 77}]),
+                FakeResponse(
+                    200, [{"tmdbId": 12345, "movieTitle": "The Test Movie", "id": 77}]
+                ),
             ]
         )
         saved = []
@@ -52,7 +56,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value={}),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data)),
+            patch.object(
+                backend, "save_hidden", side_effect=lambda data: saved.append(data)
+            ),
         ):
             result = await backend.dislike_discover(12345, body)
 
@@ -68,12 +74,18 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             [(method, url) for method, url, _ in client.requests],
         )
 
-    async def test_show_dislike_records_history_when_sonarr_exclusion_already_exists(self):
+    async def test_show_dislike_records_history_when_sonarr_exclusion_already_exists(
+        self,
+    ):
         client = FakeAsyncClient(
             [
-                FakeResponse(200, [{"tvdbId": 9876, "title": "Sonarr Canonical Title"}]),
+                FakeResponse(
+                    200, [{"tvdbId": 9876, "title": "Sonarr Canonical Title"}]
+                ),
                 FakeResponse(400, text="Series is already excluded"),
-                FakeResponse(200, [{"tvdbId": 9876, "title": "Sonarr Canonical Title", "id": 88}]),
+                FakeResponse(
+                    200, [{"tvdbId": 9876, "title": "Sonarr Canonical Title", "id": 88}]
+                ),
             ]
         )
         saved = []
@@ -82,7 +94,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value={}),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data)),
+            patch.object(
+                backend, "save_hidden", side_effect=lambda data: saved.append(data)
+            ),
         ):
             result = await backend.dislike_discover(54321, body)
 
@@ -100,7 +114,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             [(method, url) for method, url, _ in client.requests],
         )
 
-    async def test_movie_dislike_adds_radarr_import_list_exclusion_and_preserves_history_metadata(self):
+    async def test_movie_dislike_adds_radarr_import_list_exclusion_and_preserves_history_metadata(
+        self,
+    ):
         client = FakeAsyncClient([FakeResponse(201, {"id": 7})])
         saved = []
         body = {
@@ -113,7 +129,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value={}),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data)),
+            patch.object(
+                backend, "save_hidden", side_effect=lambda data: saved.append(data)
+            ),
         ):
             result = await backend.dislike_discover(12345, body)
 
@@ -147,10 +165,14 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(7, decision["exclusionId"])
         self.assertTrue(decision["timestamp"])
 
-    async def test_show_dislike_resolves_tvdb_id_and_adds_sonarr_import_list_exclusion(self):
+    async def test_show_dislike_resolves_tvdb_id_and_adds_sonarr_import_list_exclusion(
+        self,
+    ):
         client = FakeAsyncClient(
             [
-                FakeResponse(200, [{"tvdbId": 9876, "title": "Sonarr Canonical Title"}]),
+                FakeResponse(
+                    200, [{"tvdbId": 9876, "title": "Sonarr Canonical Title"}]
+                ),
                 FakeResponse(201, {"id": 8}),
             ]
         )
@@ -165,7 +187,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value={}),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data)),
+            patch.object(
+                backend, "save_hidden", side_effect=lambda data: saved.append(data)
+            ),
         ):
             result = await backend.dislike_discover(54321, body)
 
@@ -215,9 +239,15 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with (
-            patch.object(backend.httpx, "AsyncClient", side_effect=AssertionError("skip must not call an Arr service")),
+            patch.object(
+                backend.httpx,
+                "AsyncClient",
+                side_effect=AssertionError("skip must not call an Arr service"),
+            ),
             patch.object(backend, "load_hidden", return_value={}),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data)),
+            patch.object(
+                backend, "save_hidden", side_effect=lambda data: saved.append(data)
+            ),
         ):
             result = await backend.hide_discover(111, body)
 
@@ -233,18 +263,22 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value={}),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data)),
+            patch.object(
+                backend, "save_hidden", side_effect=lambda data: saved.append(data)
+            ),
+            self.assertRaises(backend.HTTPException) as raised,
         ):
-            with self.assertRaises(backend.HTTPException) as raised:
-                await backend.dislike_discover(
-                    222,
-                    {"title": "Failed Movie", "year": 2020, "type": "movies"},
-                )
+            await backend.dislike_discover(
+                222,
+                {"title": "Failed Movie", "year": 2020, "type": "movies"},
+            )
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertEqual([], saved)
 
-    async def test_movie_show_again_deletes_stored_radarr_exclusion_before_local_unhide(self):
+    async def test_movie_show_again_deletes_stored_radarr_exclusion_before_local_unhide(
+        self,
+    ):
         client = FakeAsyncClient([FakeResponse(204)])
         hidden = {
             "12345": {
@@ -259,7 +293,11 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(12345)
 
@@ -276,7 +314,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([{}], saved)
 
-    async def test_show_show_again_deletes_stored_sonarr_exclusion_before_local_unhide(self):
+    async def test_show_show_again_deletes_stored_sonarr_exclusion_before_local_unhide(
+        self,
+    ):
         client = FakeAsyncClient([FakeResponse(204)])
         hidden = {
             "54321": {
@@ -292,7 +332,11 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(54321)
 
@@ -309,34 +353,52 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual([{}], saved)
 
-    async def test_movie_show_again_without_stored_id_lists_and_matches_only_tmdb_id(self):
+    async def test_movie_show_again_without_stored_id_lists_and_matches_only_tmdb_id(
+        self,
+    ):
         client = FakeAsyncClient(
             [
-                FakeResponse(200, [{"id": 70, "tmdbId": 99999}, {"id": 7, "tmdbId": 12345}]),
+                FakeResponse(
+                    200, [{"id": 70, "tmdbId": 99999}, {"id": 7, "tmdbId": 12345}]
+                ),
                 FakeResponse(204),
             ]
         )
-        hidden = {"12345": {"action": "hidden", "type": "movies", "exclusionSource": "radarr"}}
+        hidden = {
+            "12345": {"action": "hidden", "type": "movies", "exclusionSource": "radarr"}
+        }
         saved = []
 
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(12345)
 
         self.assertEqual({"ok": True}, result)
         self.assertEqual("GET", client.requests[0][0])
-        self.assertEqual(f"{backend.RADARR_URL}/api/v3/exclusions", client.requests[0][1])
-        self.assertEqual(f"{backend.RADARR_URL}/api/v3/exclusions/7", client.requests[1][1])
+        self.assertEqual(
+            f"{backend.RADARR_URL}/api/v3/exclusions", client.requests[0][1]
+        )
+        self.assertEqual(
+            f"{backend.RADARR_URL}/api/v3/exclusions/7", client.requests[1][1]
+        )
         self.assertNotIn("/70", client.requests[1][1])
         self.assertEqual([{}], saved)
 
-    async def test_show_show_again_without_stored_id_lists_and_matches_only_tvdb_id(self):
+    async def test_show_show_again_without_stored_id_lists_and_matches_only_tvdb_id(
+        self,
+    ):
         client = FakeAsyncClient(
             [
-                FakeResponse(200, [{"id": 80, "tvdbId": 1111}, {"id": 8, "tvdbId": 9876}]),
+                FakeResponse(
+                    200, [{"id": 80, "tvdbId": 1111}, {"id": 8, "tvdbId": 9876}]
+                ),
                 FakeResponse(204),
             ]
         )
@@ -353,16 +415,26 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(54321)
 
         self.assertEqual({"ok": True}, result)
-        self.assertEqual(f"{backend.SONARR_URL}/api/v3/importlistexclusion", client.requests[0][1])
-        self.assertEqual(f"{backend.SONARR_URL}/api/v3/importlistexclusion/8", client.requests[1][1])
+        self.assertEqual(
+            f"{backend.SONARR_URL}/api/v3/importlistexclusion", client.requests[0][1]
+        )
+        self.assertEqual(
+            f"{backend.SONARR_URL}/api/v3/importlistexclusion/8", client.requests[1][1]
+        )
         self.assertEqual([{}], saved)
 
-    async def test_show_show_again_without_tvdb_id_resolves_tmdb_then_matches_sonarr_exclusion(self):
+    async def test_show_show_again_without_tvdb_id_resolves_tmdb_then_matches_sonarr_exclusion(
+        self,
+    ):
         client = FakeAsyncClient(
             [
                 FakeResponse(200, [{"tvdbId": 9876, "title": "Canonical"}]),
@@ -370,21 +442,33 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
                 FakeResponse(204),
             ]
         )
-        hidden = {"54321": {"action": "hidden", "type": "shows", "exclusionSource": "sonarr"}}
+        hidden = {
+            "54321": {"action": "hidden", "type": "shows", "exclusionSource": "sonarr"}
+        }
         saved = []
 
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(54321)
 
         self.assertEqual({"ok": True}, result)
-        self.assertEqual(f"{backend.SONARR_URL}/api/v3/series/lookup", client.requests[0][1])
+        self.assertEqual(
+            f"{backend.SONARR_URL}/api/v3/series/lookup", client.requests[0][1]
+        )
         self.assertEqual({"term": "tmdb:54321"}, client.requests[0][2]["params"])
-        self.assertEqual(f"{backend.SONARR_URL}/api/v3/importlistexclusion", client.requests[1][1])
-        self.assertEqual(f"{backend.SONARR_URL}/api/v3/importlistexclusion/8", client.requests[2][1])
+        self.assertEqual(
+            f"{backend.SONARR_URL}/api/v3/importlistexclusion", client.requests[1][1]
+        )
+        self.assertEqual(
+            f"{backend.SONARR_URL}/api/v3/importlistexclusion/8", client.requests[2][1]
+        )
         self.assertEqual([{}], saved)
 
     async def test_skip_show_again_unhides_without_contacting_arr_services(self):
@@ -398,9 +482,17 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         saved = []
 
         with (
-            patch.object(backend.httpx, "AsyncClient", side_effect=AssertionError("skip must not call an Arr service")),
+            patch.object(
+                backend.httpx,
+                "AsyncClient",
+                side_effect=AssertionError("skip must not call an Arr service"),
+            ),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(111)
 
@@ -409,13 +501,19 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_matching_exclusion_is_already_removed_and_unhides(self):
         client = FakeAsyncClient([FakeResponse(200, [{"id": 70, "tmdbId": 99999}])])
-        hidden = {"12345": {"action": "hidden", "type": "movies", "exclusionSource": "radarr"}}
+        hidden = {
+            "12345": {"action": "hidden", "type": "movies", "exclusionSource": "radarr"}
+        }
         saved = []
 
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
         ):
             result = await backend.unhide_discover(12345)
 
@@ -438,10 +536,14 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(backend.httpx, "AsyncClient", return_value=client),
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(data.copy())),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(data.copy()),
+            ),
+            self.assertRaises(backend.HTTPException) as raised,
         ):
-            with self.assertRaises(backend.HTTPException) as raised:
-                await backend.unhide_discover(12345)
+            await backend.unhide_discover(12345)
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertIn("12345", hidden)
