@@ -260,9 +260,9 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
                 side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.remove_movie_from_discover(12345)
+            await backend.remove_movie_from_discover(12345)
 
         self.assertEqual([], saved)
 
@@ -311,9 +311,9 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
                 side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.remove_show_from_discover(54321)
+            await backend.remove_show_from_discover(54321)
 
         self.assertEqual([], saved)
 
