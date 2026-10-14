@@ -1,0 +1,41 @@
+name: Draft release notes
+
+# Release automation within the repo's manual-publish stance (see
+# .github/workflows/release.yml): this workflow only creates a DRAFT release
+# with generated notes when a version tag is pushed. It never builds, uploads,
+# or replaces release assets — the reviewed, certificate- and checksum-verified
+# production APK is still uploaded and published manually.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing v-tag to create draft release notes for'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release (never touches existing releases or assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists — leaving it and its assets untouched."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --draft \
+            --generate-notes \
+            --title "TV Tenderr $TAG"
+          echo "Draft release created for $TAG. Upload the verified APK to the draft and publish manually."
