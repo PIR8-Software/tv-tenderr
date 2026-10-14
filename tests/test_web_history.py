@@ -1,7 +1,6 @@
 import unittest
 from pathlib import Path
 
-
 WEB_INDEX = Path(__file__).parents[1] / "web" / "index.html"
 
 
@@ -26,7 +25,9 @@ class WebHistoryTests(unittest.TestCase):
         html = WEB_INDEX.read_text()
         self.assertIn("async function postHistoryAction(endpoint)", html)
         self.assertIn("if (!response.ok)", html)
-        self.assertIn("throw new Error(`History action failed: ${response.status}`)", html)
+        self.assertIn(
+            "throw new Error(`History action failed: ${response.status}`)", html
+        )
 
 
 if __name__ == "__main__":

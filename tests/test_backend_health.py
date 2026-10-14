@@ -6,6 +6,7 @@ and non-flaky while proving more than a repo layout check: the app imports,
 the guard middleware enforces the token boundary, and the health contract
 responds without leaking configuration.
 """
+
 import os
 import unittest
 

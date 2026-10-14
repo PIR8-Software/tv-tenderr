@@ -31,3 +31,8 @@ jobs:
           done
       - run: python -m pytest -q
       - run: bash -n setup.sh install.sh release.sh bump_version.sh
+      - name: Lint (ruff, black, isort)
+        run: |
+          ruff check .
+          black --check .
+          isort --check-only .
