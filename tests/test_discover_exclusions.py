@@ -266,12 +266,12 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend, "save_hidden", side_effect=lambda data: saved.append(data)
             ),
+            self.assertRaises(backend.HTTPException) as raised,
         ):
-            with self.assertRaises(backend.HTTPException) as raised:
-                await backend.dislike_discover(
-                    222,
-                    {"title": "Failed Movie", "year": 2020, "type": "movies"},
-                )
+            await backend.dislike_discover(
+                222,
+                {"title": "Failed Movie", "year": 2020, "type": "movies"},
+            )
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertEqual([], saved)
@@ -541,9 +541,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
                 "save_hidden",
                 side_effect=lambda data: saved.append(data.copy()),
             ),
+            self.assertRaises(backend.HTTPException) as raised,
         ):
-            with self.assertRaises(backend.HTTPException) as raised:
-                await backend.unhide_discover(12345)
+            await backend.unhide_discover(12345)
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertIn("12345", hidden)

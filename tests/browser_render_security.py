@@ -11,20 +11,20 @@ ROOT = Path(__file__).resolve().parents[1]
 ATTACK = "\"'><img src=x onerror=window.pwned=1>&quot;);window.pwned=1;//"
 POSTER = '/missing" onerror=window.pwned=1 x="'
 ENTITY = "literal &lt;svg onload=window.pwned=1&gt; &amp; &#39;"
-ITEM = dict(
-    id=1,
-    tmdbId=10,
-    movieId=1,
-    title=ATTACK,
-    year=2024,
-    rating=8.2,
-    posterUrl=POSTER,
-    backdropUrl="javascript:window.pwned=1",
-    overview=ENTITY,
-    cast=[ATTACK],
-    trailerId=ATTACK,
-    imdbId=ATTACK,
-)
+ITEM = {
+    "id": 1,
+    "tmdbId": 10,
+    "movieId": 1,
+    "title": ATTACK,
+    "year": 2024,
+    "rating": 8.2,
+    "posterUrl": POSTER,
+    "backdropUrl": "javascript:window.pwned=1",
+    "overview": ENTITY,
+    "cast": [ATTACK],
+    "trailerId": ATTACK,
+    "imdbId": ATTACK,
+}
 
 
 def intercept(route):

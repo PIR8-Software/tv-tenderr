@@ -218,12 +218,14 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
                 with (
                     patch.object(backend, loader, return_value={}),
                     patch.object(
-                        backend, saver, side_effect=lambda value: saved.append(value)
+                        backend,
+                        saver,
+                        side_effect=lambda value, saved=saved: saved.append(value),
                     ),
                     patch.object(backend.httpx, "AsyncClient", return_value=client),
+                    self.assertRaises(backend.HTTPException) as caught,
                 ):
-                    with self.assertRaises(backend.HTTPException) as caught:
-                        await action(44)
+                    await action(44)
                 self.assertIn(caught.exception.status_code, (502, 503), identifier)
                 self.assertEqual(["GET"], [request[0] for request in client.requests])
                 self.assertEqual([], saved)
@@ -237,12 +239,12 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException) as caught,
         ):
-            with self.assertRaises(backend.HTTPException) as caught:
-                await backend.unclean_show(44)
+            await backend.unclean_show(44)
         self.assertGreaterEqual(caught.exception.status_code, 400)
         self.assertEqual([], saved)
         self.assertEqual("clean", decisions["44"]["action"])
@@ -261,12 +263,12 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.unclean_show(44)
+            await backend.unclean_show(44)
         self.assertEqual([], saved)
         self.assertEqual("clean", decisions["44"]["action"])
 
@@ -285,12 +287,12 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.clean_show(44)
+            await backend.clean_show(44)
         self.assertEqual([], saved)
         self.assertNotIn("44", decisions)
 
@@ -364,9 +366,11 @@ class PosterBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         )
-        with patch.object(backend.httpx, "AsyncClient", return_value=client):
-            with self.assertRaises(backend.HTTPException):
-                await backend.get_poster(7)
+        with (
+            patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
+        ):
+            await backend.get_poster(7)
         self.assertEqual(1, len(client.requests))
 
 
@@ -380,7 +384,7 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     backend,
                     "save_decisions",
-                    side_effect=lambda data: saved.append(dict(data)),
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
                 ),
                 patch.object(
                     backend.httpx,
@@ -401,7 +405,7 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(
                 backend.httpx,
@@ -474,8 +478,11 @@ class ConfigPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 "RADARR_ROOT_FOLDER": backend.RADARR_ROOT_FOLDER,
             }
             try:
-                with patch.object(backend, "ENV_FILE", env_path), patch.dict(
-                    os.environ, {backend.API_TOKEN_ENV: "synthetic-test-token"}
+                with (
+                    patch.object(backend, "ENV_FILE", env_path),
+                    patch.dict(
+                        os.environ, {backend.API_TOKEN_ENV: "synthetic-test-token"}
+                    ),
                 ):
                     result = await backend.update_config(
                         {
@@ -502,11 +509,12 @@ class ConfigPersistenceTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             env_path = Path(tmp) / ".env"
             env_path.write_text("RADARR_URL=http://keep.test\n", encoding="utf-8")
-            with patch.object(backend, "ENV_FILE", env_path), patch.dict(
-                os.environ, {backend.API_TOKEN_ENV: "synthetic-test-token"}
+            with (
+                patch.object(backend, "ENV_FILE", env_path),
+                patch.dict(os.environ, {backend.API_TOKEN_ENV: "synthetic-test-token"}),
+                self.assertRaises(backend.HTTPException),
             ):
-                with self.assertRaises(backend.HTTPException):
-                    await backend.update_config({"radarrUrl": "file:///etc/passwd"})
+                await backend.update_config({"radarrUrl": "file:///etc/passwd"})
             self.assertEqual(
                 "RADARR_URL=http://keep.test\n", env_path.read_text(encoding="utf-8")
             )
@@ -531,7 +539,7 @@ class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend, "RADARR_ROOT_FOLDER", "Z:\\Movies"),
             patch.object(backend, "RADARR_QUALITY_ID", 6),
@@ -557,12 +565,12 @@ class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.unblock_movie(22)
+            await backend.unblock_movie(22)
         self.assertEqual([], saved)
         self.assertEqual("block", decisions["22"]["action"])
 

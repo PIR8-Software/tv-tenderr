@@ -1,16 +1,25 @@
 # Tool configuration for tv-tenderr.
 #
-# The lint baseline is the classic pycodestyle-pyflakes set (E4/E7/E9/F),
-# which this codebase holds green. The stricter rule families ruff enables by
-# default in newer versions (S, SIM, BLE, B, PERF, PL, C4, FURB, UP) carry
-# ~50 pre-existing findings that need per-site judgment — including real
-# candidates such as mutable argument defaults in backend.py (B006) — and are
-# deferred to a dedicated lint-hardening pass rather than mixed into the
-# format-clean pass.
+# The lint gate is the classic pycodestyle-pyflakes set (E4/E7/E9/F) plus
+# bugbear (B) and the specific rules hardened in the lint-hardening and
+# lint-sweep passes (listed in extend-select). Broader families (S1xx,
+# SIM1xx, C4xx, PLR/PLE, UP/FURB) still carry style/complexity suggestions
+# and remain deferred; intentional patterns are marked per-site with noqa.
 
 [tool.isort]
 profile = "black"
 skip_gitignore = true
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "B"]
+extend-select = [
+    "SIM117",
+    "C408",
+    "S102",
+    "S110",
+    "BLE001",
+    "PERF102",
+    "PLW1510",
+    "FURB167",
+    "UP017",
+]

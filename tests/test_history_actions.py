@@ -107,7 +107,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -141,7 +141,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     backend,
                     "save_show_decisions",
-                    side_effect=lambda data: saved.append(dict(data)),
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
                 ),
             ):
                 result = await backend.unkeep_show(44)
@@ -164,7 +164,7 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -185,7 +185,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     backend,
                     "save_decisions",
-                    side_effect=lambda data: saved.append(dict(data)),
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
                 ),
             ):
                 result = await backend.unkeep_movie(22)
@@ -208,7 +208,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -233,7 +233,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -257,12 +257,12 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.remove_movie_from_discover(12345)
+            await backend.remove_movie_from_discover(12345)
 
         self.assertEqual([], saved)
 
@@ -281,7 +281,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -308,12 +308,12 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_hidden",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
+            self.assertRaises(backend.HTTPException),
         ):
-            with self.assertRaises(backend.HTTPException):
-                await backend.remove_show_from_discover(54321)
+            await backend.remove_show_from_discover(54321)
 
         self.assertEqual([], saved)
 

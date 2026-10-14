@@ -13,20 +13,20 @@ OUT = ROOT.parent / "tv-tenderr-audit/evidence"
 OUT.mkdir(parents=True, exist_ok=True)
 TOKEN = "synthetic-browser-token"
 ATTACK = "\"'><img src=x onerror=window.pwned=1>&quot;);window.pwned=1;//"
-item = dict(
-    id=1,
-    tmdbId=10,
-    movieId=1,
-    title=ATTACK,
-    year=ATTACK,
-    rating=8.2,
-    posterUrl='/missing" onerror=window.pwned=1 x="',
-    overview=ATTACK,
-    cast=[ATTACK],
-    trailerId=ATTACK,
-    imdbId=ATTACK,
-    sizeGB=ATTACK,
-)
+item = {
+    "id": 1,
+    "tmdbId": 10,
+    "movieId": 1,
+    "title": ATTACK,
+    "year": ATTACK,
+    "rating": 8.2,
+    "posterUrl": '/missing" onerror=window.pwned=1 x="',
+    "overview": ATTACK,
+    "cast": [ATTACK],
+    "trailerId": ATTACK,
+    "imdbId": ATTACK,
+    "sizeGB": ATTACK,
+}
 state = {
     "posts": [],
     "requests": [],
