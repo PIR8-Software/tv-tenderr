@@ -402,7 +402,7 @@ async def get_movies(
         cast_results = await asyncio.gather(*cast_tasks)
 
     movies = []
-    for m, cast in zip(batch, cast_results):
+    for m, cast in zip(batch, cast_results, strict=False):
         movie_id = str(m["id"])
 
         # Get file size if available
@@ -571,17 +571,17 @@ async def get_stats():
     discover = load_hidden()
 
     movie_actions = {}
-    for mid, info in movie_decisions.items():
+    for info in movie_decisions.values():
         action = info.get("action", "unknown")
         movie_actions[action] = movie_actions.get(action, 0) + 1
 
     show_actions = {}
-    for sid, info in show_decisions.items():
+    for info in show_decisions.values():
         action = info.get("action", "unknown")
         show_actions[action] = show_actions.get(action, 0) + 1
 
     discover_actions = {}
-    for tid, info in discover.items():
+    for info in discover.values():
         action = info.get("action", "unknown")
         discover_actions[action] = discover_actions.get(action, 0) + 1
 
@@ -1082,7 +1082,7 @@ async def get_shows(
         cast_results = await asyncio.gather(*cast_tasks)
 
     shows = []
-    for s, cast in zip(batch, cast_results):
+    for s, cast in zip(batch, cast_results, strict=False):
         show_id = str(s["id"])
 
         # Calculate total size and episode count
@@ -1770,7 +1770,7 @@ async def discover_movies(
 
         cast_tasks = [get_tmdb_cast(client, m["tmdbId"], "movie") for m in final_movies]
         cast_results = await asyncio.gather(*cast_tasks)
-        for m, cast in zip(final_movies, cast_results):
+        for m, cast in zip(final_movies, cast_results, strict=False):
             m["cast"] = cast
 
     return {"movies": final_movies, "total": 10000, "page": page}
@@ -1855,15 +1855,16 @@ async def discover_shows(
 
         cast_tasks = [get_tmdb_cast(client, s["tmdbId"], "tv") for s in final_shows]
         cast_results = await asyncio.gather(*cast_tasks)
-        for s, cast in zip(final_shows, cast_results):
+        for s, cast in zip(final_shows, cast_results, strict=False):
             s["cast"] = cast
 
     return {"shows": final_shows, "total": 10000, "page": page}
 
 
 @app.post("/api/discover/{tmdb_id}/dislike")
-async def dislike_discover(tmdb_id: int, body: dict = {}):
+async def dislike_discover(tmdb_id: int, body: dict | None = None):
     """Hide a disliked discover item and prevent import lists from re-adding it."""
+    body = {} if body is None else body
     media_type = body.get("type", "movie")
     title = body.get("title")
     year = body.get("year")
@@ -1989,8 +1990,9 @@ async def dislike_discover(tmdb_id: int, body: dict = {}):
 
 
 @app.post("/api/discover/{tmdb_id}/hide")
-async def hide_discover(tmdb_id: int, body: dict = {}):
+async def hide_discover(tmdb_id: int, body: dict | None = None):
     """Hide a discover item so it doesn't show again."""
+    body = {} if body is None else body
     hidden = load_hidden()
     hidden[str(tmdb_id)] = {
         "action": body.get("action", "hidden"),
@@ -2518,7 +2520,7 @@ def persist_config(config):
             except (TypeError, ValueError):
                 raise HTTPException(
                     status_code=400, detail=f"{field} must be a positive integer"
-                )
+                ) from None
             values[env_key] = str(number)
         else:
             values[env_key] = str(config[field])

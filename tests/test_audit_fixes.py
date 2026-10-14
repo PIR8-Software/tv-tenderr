@@ -218,7 +218,9 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
                 with (
                     patch.object(backend, loader, return_value={}),
                     patch.object(
-                        backend, saver, side_effect=lambda value: saved.append(value)
+                        backend,
+                        saver,
+                        side_effect=lambda value, saved=saved: saved.append(value),
                     ),
                     patch.object(backend.httpx, "AsyncClient", return_value=client),
                 ):
@@ -237,7 +239,7 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -261,7 +263,7 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -285,7 +287,7 @@ class HistoryFailureTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_show_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
@@ -380,7 +382,7 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(
                     backend,
                     "save_decisions",
-                    side_effect=lambda data: saved.append(dict(data)),
+                    side_effect=lambda data, saved=saved: saved.append(dict(data)),
                 ),
                 patch.object(
                     backend.httpx,
@@ -401,7 +403,7 @@ class SkipSemanticsTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(
                 backend.httpx,
@@ -531,7 +533,7 @@ class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend, "RADARR_ROOT_FOLDER", "Z:\\Movies"),
             patch.object(backend, "RADARR_QUALITY_ID", 6),
@@ -557,7 +559,7 @@ class RestoreExclusionTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 backend,
                 "save_decisions",
-                side_effect=lambda data: saved.append(dict(data)),
+                side_effect=lambda data, saved=saved: saved.append(dict(data)),
             ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
