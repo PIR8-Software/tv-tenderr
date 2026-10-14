@@ -67,7 +67,9 @@ class DiscoverHistoryTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend.httpx, "AsyncClient", return_value=NoRequestAsyncClient()),
+            patch.object(
+                backend.httpx, "AsyncClient", return_value=NoRequestAsyncClient()
+            ),
         ):
             result = await backend.get_discover_history()
 
@@ -92,13 +94,21 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             "seasons": [],
         }
         client = QueueAsyncClient(
-            [FakeResponse(200, []), FakeResponse(200, [lookup]), FakeResponse(201, {"id": 77})]
+            [
+                FakeResponse(200, []),
+                FakeResponse(200, [lookup]),
+                FakeResponse(201, {"id": 77}),
+            ]
         )
         saved = []
 
         with (
             patch.object(backend, "load_show_decisions", return_value=decisions),
-            patch.object(backend, "save_show_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_show_decisions",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             result = await backend.unblock_show(44)
@@ -128,7 +138,11 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             saved = []
             with (
                 patch.object(backend, "load_show_decisions", return_value=decisions),
-                patch.object(backend, "save_show_decisions", side_effect=lambda data: saved.append(dict(data))),
+                patch.object(
+                    backend,
+                    "save_show_decisions",
+                    side_effect=lambda data: saved.append(dict(data)),
+                ),
             ):
                 result = await backend.unkeep_show(44)
             self.assertEqual("unkeep", result["action"])
@@ -138,14 +152,20 @@ class ShowHistoryActionTests(unittest.IsolatedAsyncioTestCase):
         decisions = {"44": {"action": "clean"}}
         client = QueueAsyncClient(
             [
-                FakeResponse(200, [{"id": 1, "monitored": False}, {"id": 2, "monitored": True}]),
+                FakeResponse(
+                    200, [{"id": 1, "monitored": False}, {"id": 2, "monitored": True}]
+                ),
                 FakeResponse(200, {}),
             ]
         )
         saved = []
         with (
             patch.object(backend, "load_show_decisions", return_value=decisions),
-            patch.object(backend, "save_show_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_show_decisions",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             result = await backend.unclean_show(44)
@@ -162,7 +182,11 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
             saved = []
             with (
                 patch.object(backend, "load_decisions", return_value=decisions),
-                patch.object(backend, "save_decisions", side_effect=lambda data: saved.append(dict(data))),
+                patch.object(
+                    backend,
+                    "save_decisions",
+                    side_effect=lambda data: saved.append(dict(data)),
+                ),
             ):
                 result = await backend.unkeep_movie(22)
             self.assertEqual("unkeep", result["action"])
@@ -172,19 +196,29 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
         decisions = {"22": {"action": "block", "tmdbId": 12345}}
         lookup = {"title": "Test Movie", "tmdbId": 12345, "images": []}
         client = QueueAsyncClient(
-            [FakeResponse(200, []), FakeResponse(200, [lookup]), FakeResponse(201, {"id": 66})]
+            [
+                FakeResponse(200, []),
+                FakeResponse(200, [lookup]),
+                FakeResponse(201, {"id": 66}),
+            ]
         )
         saved = []
         with (
             patch.object(backend, "load_decisions", return_value=decisions),
-            patch.object(backend, "save_decisions", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_decisions",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             result = await backend.unblock_movie(22)
 
         self.assertEqual("unblock", result["action"])
         self.assertEqual({}, saved[-1])
-        self.assertEqual(["GET", "GET", "POST"], [request[0] for request in client.requests])
+        self.assertEqual(
+            ["GET", "GET", "POST"], [request[0] for request in client.requests]
+        )
 
 
 class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
@@ -196,7 +230,11 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             result = await backend.remove_movie_from_discover(12345)
@@ -208,12 +246,19 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
     async def test_remove_added_movie_preserves_history_when_radarr_delete_fails(self):
         hidden = {"12345": {"action": "added", "type": "movie"}}
         client = QueueAsyncClient(
-            [FakeResponse(200, [{"id": 9, "tmdbId": 12345}]), FakeResponse(500, text="failed")]
+            [
+                FakeResponse(200, [{"id": 9, "tmdbId": 12345}]),
+                FakeResponse(500, text="failed"),
+            ]
         )
         saved = []
         with (
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             with self.assertRaises(backend.HTTPException):
@@ -233,14 +278,20 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             result = await backend.remove_show_from_discover(54321)
 
         self.assertEqual({"ok": True}, result)
         self.assertEqual({}, saved[-1])
-        self.assertEqual(["GET", "GET", "DELETE"], [request[0] for request in client.requests])
+        self.assertEqual(
+            ["GET", "GET", "DELETE"], [request[0] for request in client.requests]
+        )
 
     async def test_remove_added_show_preserves_history_when_sonarr_delete_fails(self):
         hidden = {"54321": {"action": "added", "type": "show"}}
@@ -254,7 +305,11 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
         saved = []
         with (
             patch.object(backend, "load_hidden", return_value=hidden),
-            patch.object(backend, "save_hidden", side_effect=lambda data: saved.append(dict(data))),
+            patch.object(
+                backend,
+                "save_hidden",
+                side_effect=lambda data: saved.append(dict(data)),
+            ),
             patch.object(backend.httpx, "AsyncClient", return_value=client),
         ):
             with self.assertRaises(backend.HTTPException):
