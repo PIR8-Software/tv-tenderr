@@ -33,10 +33,14 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6
-      - name: Release unit tests (no signing or APK publication)
+      # AGP 9's variant API dropped the per-variant testReleaseUnitTest task.
+      # :app:test runs the full unit-test suite (all variants) and
+      # :app:compileReleaseSources proves the release build type still
+      # configures and compiles — no signing, no APK publication.
+      - name: Unit tests and release compile (no signing or APK publication)
         working-directory: android
         run: >-
-          ./gradlew :app:testReleaseUnitTest --no-daemon --max-workers=1
+          ./gradlew :app:test :app:compileReleaseSources --no-daemon --max-workers=1
           -Dorg.gradle.jvmargs='-Xmx1536m -XX:MaxMetaspaceSize=512m'
           -Pkotlin.compiler.execution.strategy=in-process
           -PTV_TENDERR_KEYSTORE_PASSWORD=ci-not-a-signing-secret
