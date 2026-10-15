@@ -3,7 +3,7 @@
     <!-- TV Tenderr Brand Colors -->
     <color name="brand_navy">#FF1A2332</color>
     <color name="brand_orange">#FFFF6B35</color>
-    <color name="brand_red">#FFE63946</color>
+    <color name="brand_red">#FFE57373</color>
     <color name="brand_green">#FF2DC653</color>
     <color name="brand_white">#FFFFFFFF</color>
     <color name="brand_dark">#FF0D1117</color>
@@ -13,7 +13,7 @@
     <color name="brand_text_secondary">#FF8B949E</color>
 
     <!-- Legacy compat -->
-    <color name="red">#FFE63946</color>
+    <color name="red">#FFE57373</color>
     <color name="yellow">#FFFF6B35</color>
     <color name="green">#FF2DC653</color>
 

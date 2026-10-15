@@ -50,7 +50,7 @@
     <Button
         android:id="@+id/btnUndo"
         android:layout_width="wrap_content"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:text="Undo"
         android:textSize="12sp"
         android:textColor="@android:color/white"

@@ -60,7 +60,7 @@ class SettingsActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (error != null) {
                         binding.tvUpdateStatus.text = "Check failed"
-                        binding.tvUpdateStatus.setTextColor(android.graphics.Color.parseColor("#e74c3c"))
+                        binding.tvUpdateStatus.setTextColor(android.graphics.Color.parseColor("#E57373"))
                     } else if (info != null) {
                         val latestVersion = info.version ?: "0"
                         if (isNewerVersion(latestVersion, versionName)) {

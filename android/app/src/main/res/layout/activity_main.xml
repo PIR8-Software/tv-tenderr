@@ -30,6 +30,8 @@
             android:id="@+id/tvStats"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
             android:text="Loading..."
             android:textColor="#aaa"
             android:textSize="14sp" />
@@ -44,6 +46,8 @@
             android:id="@+id/tvMode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
             android:text="Movies"
             android:textColor="#2ecc71"
             android:textSize="14sp"
@@ -53,8 +57,8 @@
 
         <ImageButton
             android:id="@+id/btnRefresh"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_refresh"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Refresh Plex"
@@ -62,8 +66,8 @@
 
         <ImageButton
             android:id="@+id/btnSettings"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_settings"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Settings"
@@ -71,8 +75,8 @@
 
         <ImageButton
             android:id="@+id/btnCalendar"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_calendar"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Calendar"
@@ -80,8 +84,8 @@
 
         <ImageButton
             android:id="@+id/btnHistory"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:src="@drawable/ic_history"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="History" />
@@ -104,7 +108,7 @@
         <EditText
             android:id="@+id/etSearch"
             android:layout_width="0dp"
-            android:layout_height="36dp"
+            android:layout_height="48dp"
             android:layout_weight="1"
             android:hint="Search..."
             android:textColorHint="#666"
@@ -137,7 +141,7 @@
         <TextView
             android:id="@+id/btnStats"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="48dp"
             android:text="Stats"
             android:textColor="#fff"
             android:textSize="12sp"
@@ -200,8 +204,8 @@
         <!-- Skip button (yellow circle, smaller) -->
         <FrameLayout
             android:id="@+id/btnSkip"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_marginEnd="40dp"
             android:background="@drawable/circle_yellow"
             android:foreground="?attr/selectableItemBackgroundBorderless">

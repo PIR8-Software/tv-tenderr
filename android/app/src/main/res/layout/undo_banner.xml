@@ -23,7 +23,7 @@
     <Button
         android:id="@+id/btnUndoAction"
         android:layout_width="wrap_content"
-        android:layout_height="36dp"
+        android:layout_height="48dp"
         android:text="UNDO"
         android:textColor="#2ecc71"
         android:textSize="13sp"
