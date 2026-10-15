@@ -9,7 +9,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 
@@ -69,7 +69,8 @@ class CalendarActivity : AppCompatActivity() {
             runOnUiThread {
                 if (response != null && response.calendar.isNotEmpty()) {
                     val recyclerView = findViewById<RecyclerView>(R.id.calendarList)
-                    recyclerView.layoutManager = LinearLayoutManager(this)
+                    recyclerView.layoutManager =
+                        GridLayoutManager(this, gridSpanCount(resources.configuration.screenWidthDp))
                     recyclerView.adapter = CalendarAdapter(response.calendar)
                 }
             }
