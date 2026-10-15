@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
             setContentView(binding.root)
             setupButtons()
             setupNavigation()
+            setupAdaptiveLayout()
             updateActionAccessibility()
             loadMovies()
             checkForUpdates()
@@ -229,45 +230,94 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.tvMode.setOnClickListener {
-            mode = when (mode) {
+            setMode(when (mode) {
                 "movies" -> "shows"
                 "shows" -> "discover"
                 else -> "movies"
-            }
-            binding.tvMode.text = when (mode) {
-                "movies" -> "Movies"
-                "shows" -> "Shows"
-                "discover" -> "Discover"
-                else -> "Movies"
-            }
-            updateActionAccessibility()
-            binding.tvMode.setTextColor(when (mode) {
-                "discover" -> resources.getColor(android.R.color.holo_orange_light, theme)
-                else -> resources.getColor(android.R.color.holo_green_light, theme)
             })
-            binding.tvStats.visibility = if (mode == "discover") View.INVISIBLE else View.VISIBLE
-                        // Reset discover type when entering discover mode
-            if (mode == "discover") {
-                discoverType = "movies"
-            }
-            currentIndex = 0
-            discoverPage = 1
-            currentSearchQuery = ""
-            binding.etSearch.text.clear()
-            movies.clear()
-            shows.clear()
-            discoverItems.clear()
-            binding.cardContainer.removeAllViews()
-            binding.searchBar.visibility = if (mode == "discover") View.GONE else View.VISIBLE
-            when (mode) {
-                "movies" -> loadMovies()
-                "shows" -> loadShows()
-                "discover" -> loadDiscover()
-            }
         }
 
 
 
+    }
+
+    private fun setMode(newMode: String) {
+        mode = newMode
+        binding.tvMode.text = when (mode) {
+            "movies" -> "Movies"
+            "shows" -> "Shows"
+            "discover" -> "Discover"
+            else -> "Movies"
+        }
+        updateActionAccessibility()
+        binding.tvMode.setTextColor(when (mode) {
+            "discover" -> resources.getColor(android.R.color.holo_orange_light, theme)
+            else -> resources.getColor(android.R.color.holo_green_light, theme)
+        })
+        binding.tvStats.visibility = if (mode == "discover") View.INVISIBLE else View.VISIBLE
+        // Reset discover type when entering discover mode
+        if (mode == "discover") {
+            discoverType = "movies"
+        }
+        currentIndex = 0
+        discoverPage = 1
+        currentSearchQuery = ""
+        binding.etSearch.text.clear()
+        movies.clear()
+        shows.clear()
+        discoverItems.clear()
+        binding.cardContainer.removeAllViews()
+        binding.searchBar.visibility = if (mode == "discover") View.GONE else View.VISIBLE
+        syncRailSelection()
+        when (mode) {
+            "movies" -> loadMovies()
+            "shows" -> loadShows()
+            "discover" -> loadDiscover()
+        }
+    }
+
+    private fun syncRailSelection() {
+        val item = when (mode) {
+            "movies" -> R.id.navMovies
+            "shows" -> R.id.navShows
+            "discover" -> R.id.navDiscover
+            else -> null
+        }
+        item?.let { binding.navRail.menu.findItem(it)?.isChecked = true }
+    }
+
+    private fun setupAdaptiveLayout() {
+        val wide = resources.configuration.screenWidthDp >= 600
+        if (!wide) {
+            binding.navRail.visibility = View.GONE
+            return
+        }
+        binding.navRail.visibility = View.VISIBLE
+        binding.navRail.inflateMenu(R.menu.nav_rail_menu)
+        binding.navRail.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.navMovies -> setMode("movies")
+                R.id.navShows -> setMode("shows")
+                R.id.navDiscover -> setMode("discover")
+                R.id.navCalendar -> {
+                    startActivity(android.content.Intent(this, CalendarActivity::class.java))
+                    return@setOnItemSelectedListener false
+                }
+                R.id.navHistory -> {
+                    startActivity(
+                        android.content.Intent(this, HistoryActivity::class.java)
+                            .putExtra("mode", mode)
+                    )
+                    return@setOnItemSelectedListener false
+                }
+                R.id.navSettings -> {
+                    startActivity(android.content.Intent(this, SettingsActivity::class.java))
+                    return@setOnItemSelectedListener false
+                }
+            }
+            true
+        }
+        syncRailSelection()
     }
 
     private fun showStatsDialog() {

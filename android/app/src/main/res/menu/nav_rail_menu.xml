@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navMovies"
+        android:icon="@drawable/ic_movie"
+        android:title="Movies" />
+    <item
+        android:id="@+id/navShows"
+        android:icon="@drawable/ic_tv"
+        android:title="Shows" />
+    <!-- ic_filter stands in for discover until a dedicated icon exists -->
+    <item
+        android:id="@+id/navDiscover"
+        android:icon="@drawable/ic_filter"
+        android:title="Discover" />
+    <item
+        android:id="@+id/navCalendar"
+        android:icon="@drawable/ic_calendar"
+        android:title="Calendar" />
+    <item
+        android:id="@+id/navHistory"
+        android:icon="@drawable/ic_history"
+        android:title="History" />
+    <item
+        android:id="@+id/navSettings"
+        android:icon="@drawable/ic_settings"
+        android:title="Settings" />
+</menu>
