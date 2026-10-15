@@ -21,6 +21,7 @@ class CalendarActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_calendar)
+        applySystemBarInsets()
 
         val serverUrl = getSharedPreferences("movieswipe", MODE_PRIVATE)
             .getString("server_url", "http://10.0.2.2:8899") ?: "http://10.0.2.2:8899"

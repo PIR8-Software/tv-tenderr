@@ -4,7 +4,10 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -20,10 +23,13 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.core.app.ActivityCompat
 import androidx.core.view.updateLayoutParams
 import com.bumptech.glide.Glide
 import com.movieswipe.databinding.ActivityMainBinding
 import kotlin.math.abs
+
+private const val REQUEST_LOCAL_NETWORK = 1001
 
 class MainActivity : AppCompatActivity() {
 
@@ -55,6 +61,8 @@ class MainActivity : AppCompatActivity() {
 
         // Show splash screen
         setContentView(R.layout.activity_splash)
+        applySystemBarInsets()
+        ensureLocalNetworkPermission()
 
         // After delay, load main UI
         window.decorView.postDelayed({
@@ -66,6 +74,44 @@ class MainActivity : AppCompatActivity() {
             loadMovies()
             checkForUpdates()
         }, 2000)
+    }
+
+    private fun ensureLocalNetworkPermission() {
+        // ACCESS_LOCAL_NETWORK is only enforced on Android 17+ devices; the
+        // check is a no-op everywhere older.
+        if (Build.VERSION.SDK_INT < 37) return
+        val permission = Manifest.permission.ACCESS_LOCAL_NETWORK
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) return
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
+            AlertDialog.Builder(this)
+                .setTitle("Local network access")
+                .setMessage("TV Tenderr reaches Radarr, Sonarr, and Plex on your local network. Allow local network access to load your library.")
+                .setPositiveButton("Allow") { _, _ ->
+                    ActivityCompat.requestPermissions(this, arrayOf(permission), REQUEST_LOCAL_NETWORK)
+                }
+                .setNegativeButton("Not now", null)
+                .show()
+        } else {
+            ActivityCompat.requestPermissions(this, arrayOf(permission), REQUEST_LOCAL_NETWORK)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_LOCAL_NETWORK) return
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            if (::binding.isInitialized) reloadCurrentQueue()
+        } else {
+            Toast.makeText(
+                this,
+                "Local network access denied - library loading will not work.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onResume() {

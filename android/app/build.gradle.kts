@@ -9,7 +9,7 @@ android {
     defaultConfig {
         applicationId = "com.movieswipe"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 37
         versionCode = 10304
         versionName = "1.3.4"
     }
