@@ -4,7 +4,7 @@
         <item name="colorPrimary">#2ecc71</item>
         <item name="colorPrimaryVariant">#27ae60</item>
         <item name="colorOnPrimary">@android:color/white</item>
-        <item name="colorSecondary">#e74c3c</item>
+        <item name="colorSecondary">#E57373</item>
         <item name="colorSecondaryVariant">#c0392b</item>
         <item name="colorOnSecondary">@android:color/white</item>
         <item name="android:statusBarColor">#1a1a2e</item>

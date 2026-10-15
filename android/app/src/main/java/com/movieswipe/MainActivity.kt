@@ -353,21 +353,21 @@ class MainActivity : AppCompatActivity() {
                     addStatRow(statsMovies, "Total", stats.movies.total)
                     addStatRow(statsMovies, "Kept", stats.movies.kept, "#2ecc71")
                     addStatRow(statsMovies, "Super Kept", stats.movies.superKept, "#f1c40f")
-                    addStatRow(statsMovies, "Blocked", stats.movies.blocked, "#e74c3c")
+                    addStatRow(statsMovies, "Blocked", stats.movies.blocked, "#E57373")
                     addStatRow(statsMovies, "Skipped", stats.movies.skipped, "#aaaaaa")
-                    addStatRow(statsMovies, "Undecided", stats.movies.undecided, "#555555")
+                    addStatRow(statsMovies, "Undecided", stats.movies.undecided, "#9e9e9e")
 
                     // Shows
                     addStatRow(statsShows, "Total", stats.shows.total)
                     addStatRow(statsShows, "Kept", stats.shows.kept, "#2ecc71")
                     addStatRow(statsShows, "Super Kept", stats.shows.superKept, "#f1c40f")
-                    addStatRow(statsShows, "Blocked", stats.shows.blocked, "#e74c3c")
+                    addStatRow(statsShows, "Blocked", stats.shows.blocked, "#E57373")
                     addStatRow(statsShows, "Skipped", stats.shows.skipped, "#aaaaaa")
-                    addStatRow(statsShows, "Undecided", stats.shows.undecided, "#555555")
+                    addStatRow(statsShows, "Undecided", stats.shows.undecided, "#9e9e9e")
 
                     // Discover
                     addStatRow(statsDiscover, "Added", stats.discover.added, "#2ecc71")
-                    addStatRow(statsDiscover, "Hidden", stats.discover.hidden, "#e74c3c")
+                    addStatRow(statsDiscover, "Hidden", stats.discover.hidden, "#E57373")
 
                     val dialog = android.app.AlertDialog.Builder(this)
                         .setView(dialogView)

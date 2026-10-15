@@ -20,8 +20,8 @@
 
             <ImageButton
                 android:id="@+id/btnBack"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:src="@drawable/ic_back"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Back" />
@@ -354,7 +354,7 @@
             <Button
                 android:id="@+id/btnCheckUpdates"
                 android:layout_width="wrap_content"
-                android:layout_height="40dp"
+                android:layout_height="48dp"
                 android:text="Check for Updates"
                 android:textColor="@android:color/white"
                 android:textSize="13sp"

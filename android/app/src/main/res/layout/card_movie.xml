@@ -90,7 +90,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="BLOCK"
-            android:textColor="#e74c3c"
+            android:textColor="#E57373"
             android:textSize="48sp"
             android:textStyle="bold"
             android:rotation="20"
