@@ -29,6 +29,7 @@ class HistoryActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityHistoryBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets()
 
         val serverUrl = getSharedPreferences("movieswipe", MODE_PRIVATE)
             .getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"

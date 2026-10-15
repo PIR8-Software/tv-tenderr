@@ -23,6 +23,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySystemBarInsets()
 
         val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
         val secrets = SecretStore.open(this)
