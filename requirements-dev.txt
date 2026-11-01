@@ -1,5 +1,5 @@
 pytest==9.2.0
-ruff==0.17.0
+ruff==0.17.3
 black==26.10.1
 isort==9.0.2
 pre-commit==4.7.0; python_version >= "3.11"
