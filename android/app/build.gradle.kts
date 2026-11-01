@@ -1,63 +1,54 @@
 plugins {
-    id("com.android.application")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.jetbrains.kotlin.android)
 }
 
 android {
-    namespace = "com.movieswipe"
-    compileSdk = 37
+    namespace = "com.pir8tv.tvtenderr"
+    compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.movieswipe"
+        applicationId = "com.pir8tv.tvtenderr"
         minSdk = 26
-        targetSdk = 37
-        versionCode = 10304
-        versionName = "1.3.4"
-    }
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
 
-    signingConfigs {
-        create("release") {
-            storeFile = file("tv-tenderr-release.jks")
-            storePassword = providers.gradleProperty("TV_TENDERR_KEYSTORE_PASSWORD").orNull
-                ?: System.getenv("KEYSTORE_PASSWORD")
-                ?: throw GradleException("TV Tenderr keystore password is not configured")
-            keyAlias = "tv-tenderr"
-            keyPassword = providers.gradleProperty("TV_TENDERR_KEY_PASSWORD").orNull
-                ?: System.getenv("KEY_PASSWORD")
-                ?: throw GradleException("TV Tenderr key password is not configured")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary = true
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
-
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
-
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
     buildFeatures {
         viewBinding = true
     }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    lint {
+        checkReleaseBuilds = false
     }
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.2")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
-    implementation("com.google.code.gson:gson:2.14.0")
+    implementation("com.google.code.gson:gson:2.15.0")
     implementation("com.github.bumptech.glide:glide:5.0.9")
     implementation("androidx.cardview:cardview:1.0.0")
     implementation("androidx.security:security-crypto:1.0.0")
