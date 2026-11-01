@@ -1,43 +1,52 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.jetbrains.kotlin.android)
+    id("com.android.application")
 }
 
 android {
-    namespace = "com.pir8tv.tvtenderr"
-    compileSdk = 34
+    namespace = "com.movieswipe"
+    compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.pir8tv.tvtenderr"
+        applicationId = "com.movieswipe"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 37
+        versionCode = 10304
+        versionName = "1.3.4"
+    }
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
+    signingConfigs {
+        create("release") {
+            storeFile = file("tv-tenderr-release.jks")
+            storePassword = providers.gradleProperty("TV_TENDERR_KEYSTORE_PASSWORD").orNull
+                ?: System.getenv("KEYSTORE_PASSWORD")
+                ?: throw GradleException("TV Tenderr keystore password is not configured")
+            keyAlias = "tv-tenderr"
+            keyPassword = providers.gradleProperty("TV_TENDERR_KEY_PASSWORD").orNull
+                ?: System.getenv("KEY_PASSWORD")
+                ?: throw GradleException("TV Tenderr key password is not configured")
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
+
     buildFeatures {
         viewBinding = true
     }
-    lint {
-        checkReleaseBuilds = false
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
