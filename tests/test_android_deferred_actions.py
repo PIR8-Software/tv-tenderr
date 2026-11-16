@@ -19,7 +19,8 @@ class AndroidDeferredActionTests(unittest.TestCase):
     def test_undo_before_clean_timeout_does_not_call_unclean_endpoint(self):
         source = MAIN_ACTIVITY.read_text()
         match = re.search(
-            r"Long press skip on shows = clean files(?P<body>.*?)pendingBlock = \{\s*api\.cleanShow",
+            r"Long press skip on shows = clean files(?P<body>.*?)pendingBlock = \{\s*"
+            r"(?:submitDecision \{ cb ->\s*)?api\.cleanShow",
             source,
             re.DOTALL,
         )

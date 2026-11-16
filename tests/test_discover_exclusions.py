@@ -63,9 +63,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             result = await backend.dislike_discover(12345, body)
 
         self.assertEqual({"ok": True}, result)
-        self.assertEqual("dislike", saved[0]["12345"]["hideSource"])
-        self.assertEqual("radarr", saved[0]["12345"]["exclusionSource"])
-        self.assertEqual(77, saved[0]["12345"]["exclusionId"])
+        self.assertEqual("dislike", saved[0]["movie:12345"]["hideSource"])
+        self.assertEqual("radarr", saved[0]["movie:12345"]["exclusionSource"])
+        self.assertEqual(77, saved[0]["movie:12345"]["exclusionId"])
         self.assertEqual(
             [
                 ("POST", f"{backend.RADARR_URL}/api/v3/exclusions"),
@@ -101,10 +101,10 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             result = await backend.dislike_discover(54321, body)
 
         self.assertEqual({"ok": True}, result)
-        self.assertEqual("dislike", saved[0]["54321"]["hideSource"])
-        self.assertEqual("sonarr", saved[0]["54321"]["exclusionSource"])
-        self.assertEqual(9876, saved[0]["54321"]["tvdbId"])
-        self.assertEqual(88, saved[0]["54321"]["exclusionId"])
+        self.assertEqual("dislike", saved[0]["show:54321"]["hideSource"])
+        self.assertEqual("sonarr", saved[0]["show:54321"]["exclusionSource"])
+        self.assertEqual(9876, saved[0]["show:54321"]["tvdbId"])
+        self.assertEqual(88, saved[0]["show:54321"]["exclusionId"])
         self.assertEqual(
             [
                 ("GET", f"{backend.SONARR_URL}/api/v3/series/lookup"),
@@ -154,12 +154,12 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             ],
             client.requests,
         )
-        decision = saved[0]["12345"]
+        decision = saved[0]["movie:12345"]
         self.assertEqual("hidden", decision["action"])
         self.assertEqual("The Test Movie", decision["title"])
         self.assertEqual(2024, decision["year"])
         self.assertEqual("https://image.test/poster.jpg", decision["posterUrl"])
-        self.assertEqual("movies", decision["type"])
+        self.assertEqual("movie", decision["type"])
         self.assertEqual("dislike", decision["hideSource"])
         self.assertEqual("radarr", decision["exclusionSource"])
         self.assertEqual(7, decision["exclusionId"])
@@ -217,12 +217,12 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             ],
             client.requests,
         )
-        decision = saved[0]["54321"]
+        decision = saved[0]["show:54321"]
         self.assertEqual("hidden", decision["action"])
         self.assertEqual("The Test Show", decision["title"])
         self.assertEqual(2023, decision["year"])
         self.assertEqual("https://image.test/show.jpg", decision["posterUrl"])
-        self.assertEqual("shows", decision["type"])
+        self.assertEqual("show", decision["type"])
         self.assertEqual("sonarr", decision["exclusionSource"])
         self.assertEqual(8, decision["exclusionId"])
         self.assertEqual(9876, decision["tvdbId"])
@@ -252,9 +252,9 @@ class DiscoverDislikeExclusionTests(unittest.IsolatedAsyncioTestCase):
             result = await backend.hide_discover(111, body)
 
         self.assertEqual({"ok": True}, result)
-        self.assertEqual("hidden", saved[0]["111"]["action"])
-        self.assertEqual("skip", saved[0]["111"]["hideSource"])
-        self.assertEqual("Skipped Movie", saved[0]["111"]["title"])
+        self.assertEqual("hidden", saved[0]["movie:111"]["action"])
+        self.assertEqual("skip", saved[0]["movie:111"]["hideSource"])
+        self.assertEqual("Skipped Movie", saved[0]["movie:111"]["title"])
 
     async def test_failed_import_list_exclusion_does_not_record_dislike(self):
         client = FakeAsyncClient([FakeResponse(500, text="service unavailable")])

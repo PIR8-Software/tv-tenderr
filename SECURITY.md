@@ -21,7 +21,7 @@ Run exactly **one backend process/worker**. The process-local transaction lock i
 
 Decision files live beside `backend.py` in `data/`. Preserve all current JSON and private `.env` before upgrades. The legacy-path guard refuses an empty current store when the old store exists; it does not migrate or merge data for you. Retain the `tv-tenderr.service` name and customize the template for your installation. Do not blindly restore old decision files over newer ones.
 
-Undo cancels destructive actions still in the ten-second pending window; it cannot undelete files after the upstream operation has executed. Competing web Keep/Add cancels the matching pending action. Leaving Android cancels pending deletion. Partial external failures can require manual recovery. Test mutations only against disposable synthetic fixtures, never a production library.
+Undo cancels destructive actions still in the ten-second pending window; it cannot undelete files after the upstream operation has executed. Competing web Keep/Add cancels the matching pending action. Leaving Android cancels pending deletion. Destructive block/clean operations write a durable operation journal (`data/operation_journal.json`) BEFORE any upstream deletion, recording effect phases and recovery metadata; interrupted or uncertain attempts are reconciled on retry so the local history can always be completed. The journal preserves recovery metadata only — deleted media bytes are never recoverable. Partial external failures can require manual recovery. Test mutations only against disposable synthetic fixtures, never a production library.
 
 ## Verification boundaries
 

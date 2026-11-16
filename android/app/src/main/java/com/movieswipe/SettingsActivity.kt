@@ -27,12 +27,15 @@ class SettingsActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
         val secrets = SecretStore.open(this)
-        val serverUrl = prefs.getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"
+        // F5: resolve the stored endpoint safely for all request work; the raw
+        // stored value is still shown so an invalid one can be corrected.
+        val rawServerUrl = prefs.getString("server_url", BackendUrl.DEFAULT) ?: BackendUrl.DEFAULT
+        val serverUrl = BackendUrl.resolve(rawServerUrl)
         val apiToken = secrets.getString("api_token", "") ?: ""
         api = ApiClient(serverUrl, apiToken)
 
         // Load saved settings. Secrets come from encrypted storage, never from the backup-eligible file.
-        binding.etBackendUrl.setText(serverUrl)
+        binding.etBackendUrl.setText(rawServerUrl)
         binding.etApiToken.setText(apiToken)
         binding.etRadarrUrl.setText(prefs.getString("radarr_url", "http://localhost:7878"))
         binding.etRadarrKey.setText(secrets.getString("radarr_key", "") ?: "")
@@ -82,8 +85,18 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         binding.btnSave.setOnClickListener {
+            // F5: validate the candidate backend URL BEFORE any preference
+            // write or network work. On failure keep the previous valid
+            // configuration untouched and show an inline message.
+            val backendUrl = BackendUrl.normalize(binding.etBackendUrl.text.toString())
+            if (backendUrl == null) {
+                binding.tvStatus.text =
+                    "Invalid backend URL - must be http(s):// with a host; previous settings kept"
+                binding.etBackendUrl.requestFocus()
+                return@setOnClickListener
+            }
             val editor = prefs.edit()
-            editor.putString("server_url", binding.etBackendUrl.text.toString().trim())
+            editor.putString("server_url", backendUrl)
             editor.putString("radarr_url", binding.etRadarrUrl.text.toString().trim())
             editor.putString("sonarr_url", binding.etSonarrUrl.text.toString().trim())
             editor.putString("plex_url", binding.etPlexUrl.text.toString().trim())
@@ -159,14 +172,14 @@ class SettingsActivity : AppCompatActivity() {
                 sonarrRoot = sonarrRoot,
             )
             val token = binding.etApiToken.text.toString().trim().ifEmpty { secrets.getString("api_token", "").orEmpty() }
-            api.setUrl(binding.etBackendUrl.text.toString().trim())
+            api.setUrl(backendUrl)
             api.setToken(token)
 
             val client = OkHttpClient()
             val json = com.google.gson.Gson().toJson(config)
             val body = json.toRequestBody("application/json".toMediaType())
             val requestBuilder = Request.Builder()
-                .url("${binding.etBackendUrl.text.toString().trim()}/api/config")
+                .url("$backendUrl/api/config")
                 .post(body)
             if (token.isNotEmpty()) requestBuilder.header("Authorization", "Bearer $token")
             val request = requestBuilder.build()
@@ -179,7 +192,7 @@ class SettingsActivity : AppCompatActivity() {
                     val message = settingsSaveMessage(response.isSuccessful)
                     runOnUiThread {
                         binding.tvStatus.text = message
-                        if (response.isSuccessful) loadQualityProfiles(binding.etBackendUrl.text.toString().trim())
+                        if (response.isSuccessful) loadQualityProfiles(backendUrl)
                         Toast.makeText(this@SettingsActivity, message, Toast.LENGTH_SHORT).show()
                     }
                     response.close()

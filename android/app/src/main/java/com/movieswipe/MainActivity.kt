@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
     private val shows = mutableListOf<Show>()
     private val discoverItems = mutableListOf<DiscoverItem>()
     private var currentIndex = 0
-    private var isLoading = false
+    private val loadCoordinator = QueueLoadCoordinator()
     private var mode = "movies" // "movies", "shows", "discover"
     private var discoverType = "movies" // "movies" or "shows" within discover
     private var currentSearchQuery = ""
@@ -50,13 +50,14 @@ class MainActivity : AppCompatActivity() {
     private var selectedProviders = ""
     private var discoverPage = 1
     private var discoverSort = "popularity.desc"
-    private var discoverRequestId = 0  // Track which request is current
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", "http://localhost:8899") ?: "http://localhost:8899"
+        // F5: resolve the stored endpoint safely; invalid stored configuration
+        // falls back to the default instead of crashing request construction.
+        val serverUrl = BackendUrl.resolve(prefs.getString("server_url", null))
         api = ApiClient(serverUrl, storedApiToken(this))
 
         // Show splash screen
@@ -119,7 +120,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (!::api.isInitialized) return
         val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
-        api.setUrl(prefs.getString("server_url", "http://localhost:8899") ?: "http://localhost:8899")
+        api.setUrl(BackendUrl.resolve(prefs.getString("server_url", null)))
         api.setToken(storedApiToken(this))
         if (::binding.isInitialized) reloadCurrentQueue()
     }
@@ -482,21 +483,23 @@ class MainActivity : AppCompatActivity() {
                 "movies" -> {
                     if (movies.isNotEmpty() && currentIndex < movies.size) {
                         val movie = movies[currentIndex]
-                        animateCardOut(true) { api.keepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
+                        animateCardOut(true) { submitDecision { cb -> api.keepMovie(movie.id, cb) }; advanceCard() }
                     }
                 }
                 "shows" -> {
                     if (shows.isNotEmpty() && currentIndex < shows.size) {
                         val show = shows[currentIndex]
-                        animateCardOut(true) { api.keepShow(show.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
+                        animateCardOut(true) { submitDecision { cb -> api.keepShow(show.id, cb) }; advanceCard() }
                     }
                 }
                 "discover" -> {
                     if (discoverItems.isNotEmpty() && currentIndex < discoverItems.size) {
                         val item = discoverItems[currentIndex]
                         animateCardOut(true) {
-                            if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
-                            else api.addShowFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
+                            submitDecision { cb ->
+                                if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId, cb)
+                                else api.addShowFromDiscover(item.tmdbId, cb)
+                            }
                             advanceCard()
                         }
                     }
@@ -510,14 +513,14 @@ class MainActivity : AppCompatActivity() {
                 "movies" -> {
                     if (movies.isNotEmpty() && currentIndex < movies.size) {
                         val movie = movies[currentIndex]
-                        animateCardOut(true) { api.superKeepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
+                        animateCardOut(true) { submitDecision { cb -> api.superKeepMovie(movie.id, cb) }; advanceCard() }
                         android.widget.Toast.makeText(this, "⭐ Super Keep: ${movie.title}", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
                 "shows" -> {
                     if (shows.isNotEmpty() && currentIndex < shows.size) {
                         val show = shows[currentIndex]
-                        animateCardOut(true) { api.superKeepShow(show.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard() }
+                        animateCardOut(true) { submitDecision { cb -> api.superKeepShow(show.id, cb) }; advanceCard() }
                         android.widget.Toast.makeText(this, "⭐ Super Keep: ${show.title}", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -526,8 +529,10 @@ class MainActivity : AppCompatActivity() {
                     if (discoverItems.isNotEmpty() && currentIndex < discoverItems.size) {
                         val item = discoverItems[currentIndex]
                         animateCardOut(true) {
-                            if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
-                            else api.addShowFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
+                            submitDecision { cb ->
+                                if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId, cb)
+                                else api.addShowFromDiscover(item.tmdbId, cb)
+                            }
                             advanceCard()
                         }
                         android.widget.Toast.makeText(this, "⬇️ Added: ${item.title}", android.widget.Toast.LENGTH_SHORT).show()
@@ -554,19 +559,19 @@ class MainActivity : AppCompatActivity() {
                 "movies" -> {
                     if (movies.isNotEmpty() && currentIndex < movies.size) {
                         val movie = movies[currentIndex]
-                        api.skipMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard()
+                        submitDecision { cb -> api.skipMovie(movie.id, cb) }; advanceCard()
                     }
                 }
                 "shows" -> {
                     if (shows.isNotEmpty() && currentIndex < shows.size) {
                         val show = shows[currentIndex]
-                        api.skipShow(show.id) { ok, error -> reportActionFailure(ok, error) }; advanceCard()
+                        submitDecision { cb -> api.skipShow(show.id, cb) }; advanceCard()
                     }
                 }
                 "discover" -> {
                     if (discoverItems.isNotEmpty() && currentIndex < discoverItems.size) {
                         val item = discoverItems[currentIndex]
-                        api.hideDiscover(item.tmdbId, item.title, item.year, item.posterUrl, discoverType) { ok, error -> reportActionFailure(ok, error) }; advanceCard()
+                        submitDecision { cb -> api.hideDiscover(item.tmdbId, item.title, item.year, item.posterUrl, discoverType, cb) }; advanceCard()
                     }
                 }
             }
@@ -583,9 +588,11 @@ class MainActivity : AppCompatActivity() {
                         showCurrentCard()
                     }
                     pendingBlock = {
-                        api.cleanShow(show.id) { ok, error ->
-                            reportActionFailure(ok, error)
-                            if (ok) runOnUiThread { android.widget.Toast.makeText(this, "🧹 Cleaned: ${show.title}", android.widget.Toast.LENGTH_SHORT).show() }
+                        submitDecision { cb ->
+                            api.cleanShow(show.id) { ok, error ->
+                                cb(ok, error)
+                                if (ok) runOnUiThread { android.widget.Toast.makeText(this, "🧹 Cleaned: ${show.title}", android.widget.Toast.LENGTH_SHORT).show() }
+                            }
                         }
                     }
                     advanceCard()
@@ -603,7 +610,7 @@ class MainActivity : AppCompatActivity() {
                 currentIndex = movieIndex
                 showCurrentCard()
             }
-            pendingBlock = { api.blockMovie(movie.id) { ok, error -> reportActionFailure(ok, error) } }
+            pendingBlock = { submitDecision { cb -> api.blockMovie(movie.id, cb) } }
             advanceCard()
         }
     }
@@ -616,7 +623,7 @@ class MainActivity : AppCompatActivity() {
                 currentIndex = showIndex
                 showCurrentCard()
             }
-            pendingBlock = { api.blockShow(show.id) { ok, error -> reportActionFailure(ok, error) } }
+            pendingBlock = { submitDecision { cb -> api.blockShow(show.id, cb) } }
             advanceCard()
         }
     }
@@ -631,7 +638,9 @@ class MainActivity : AppCompatActivity() {
                 showCurrentCard()
             }
             pendingBlock = {
-                api.dislikeDiscover(item.tmdbId, item.title, item.year, item.posterUrl, itemType) { ok, error -> reportActionFailure(ok, error) }
+                submitDecision { cb ->
+                    api.dislikeDiscover(item.tmdbId, item.title, item.year, item.posterUrl, itemType, cb)
+                }
             }
             advanceCard()
         }
@@ -646,6 +655,16 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             Toast.makeText(this, error ?: "Action failed", Toast.LENGTH_LONG).show()
             reloadCurrentQueue()
+        }
+    }
+
+    private fun submitDecision(send: ((Boolean, String?) -> Unit) -> Unit) {
+        // F3: queue reloads wait for in-flight decision writes so a
+        // just-decided card cannot reappear in the next batch fetch.
+        loadCoordinator.beginDecision()
+        send { ok, error ->
+            loadCoordinator.endDecision()
+            reportActionFailure(ok, error)
         }
     }
 
@@ -678,50 +697,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadMovies() {
-        if (isLoading) return
-        isLoading = true
         binding.tvStats.text = ""
-
-        api.getMovies(skip = currentIndex, limit = 20, genre = currentGenre, minYear = currentMinYear, maxYear = currentMaxYear, minRating = currentMinRating, search = currentSearchQuery) { response, error ->
-            runOnUiThread {
-                isLoading = false
-                if (error != null) {
-                    binding.tvStats.text = "ERROR"
-                    return@runOnUiThread
-                }
-                if (response != null && response.movies.isNotEmpty()) {
-                    movies.clear()
-                    movies.addAll(response.movies)
-                    currentIndex = 0
-                    binding.tvStats.text = "${response.total} movies"
-                    showCurrentCard()
-                } else {
-                    binding.tvStats.text = "No movies to review!"
+        // F3/F4: always fetch the head of the remaining queue; each request
+        // carries a generation, stale responses are ignored and the newest
+        // requested state is dispatched even across success/empty/error.
+        loadCoordinator.request { token ->
+            api.getMovies(skip = loadCoordinator.batchSkip(), limit = QueueLoadCoordinator.BATCH_LIMIT, genre = currentGenre, minYear = currentMinYear, maxYear = currentMaxYear, minRating = currentMinRating, search = currentSearchQuery) { response, error ->
+                runOnUiThread {
+                    if (!loadCoordinator.settle(token)) return@runOnUiThread
+                    if (error != null) {
+                        binding.tvStats.text = "ERROR"
+                        return@runOnUiThread
+                    }
+                    if (response != null && response.movies.isNotEmpty()) {
+                        movies.clear()
+                        movies.addAll(response.movies)
+                        currentIndex = 0
+                        binding.tvStats.text = "${response.total} movies"
+                        showCurrentCard()
+                    } else {
+                        binding.tvStats.text = "No movies to review!"
+                    }
                 }
             }
         }
     }
 
     private fun loadShows() {
-        if (isLoading) return
-        isLoading = true
         binding.tvStats.text = ""
-
-        api.getShows(skip = currentIndex, limit = 20, genre = currentGenre, minYear = currentMinYear, maxYear = currentMaxYear, minRating = currentMinRating, search = currentSearchQuery) { response, error ->
-            runOnUiThread {
-                isLoading = false
-                if (error != null) {
-                    binding.tvStats.text = "ERROR"
-                    return@runOnUiThread
-                }
-                if (response != null && response.shows.isNotEmpty()) {
-                    shows.clear()
-                    shows.addAll(response.shows)
-                    currentIndex = 0
-                    binding.tvStats.text = "${response.total} shows"
-                    showCurrentCard()
-                } else {
-                    binding.tvStats.text = "No shows to review!"
+        loadCoordinator.request { token ->
+            api.getShows(skip = loadCoordinator.batchSkip(), limit = QueueLoadCoordinator.BATCH_LIMIT, genre = currentGenre, minYear = currentMinYear, maxYear = currentMaxYear, minRating = currentMinRating, search = currentSearchQuery) { response, error ->
+                runOnUiThread {
+                    if (!loadCoordinator.settle(token)) return@runOnUiThread
+                    if (error != null) {
+                        binding.tvStats.text = "ERROR"
+                        return@runOnUiThread
+                    }
+                    if (response != null && response.shows.isNotEmpty()) {
+                        shows.clear()
+                        shows.addAll(response.shows)
+                        currentIndex = 0
+                        binding.tvStats.text = "${response.total} shows"
+                        showCurrentCard()
+                    } else {
+                        binding.tvStats.text = "No shows to review!"
+                    }
                 }
             }
         }
@@ -885,7 +905,7 @@ class MainActivity : AppCompatActivity() {
                         val goRight = currentX > 0
                         if (goRight) {
                             animateCardOut(true) {
-                                api.keepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }
+                                submitDecision { cb -> api.keepMovie(movie.id, cb) }
                                 advanceCard()
                             }
                         } else {
@@ -894,13 +914,13 @@ class MainActivity : AppCompatActivity() {
                     } else if (currentY > threshold && abs(currentY) > abs(currentX)) {
                         // Swipe down = super keep
                         animateCardDown {
-                            api.superKeepMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }
+                            submitDecision { cb -> api.superKeepMovie(movie.id, cb) }
                             advanceCard()
                         }
                     } else if (currentY < -threshold && abs(currentY) > abs(currentX)) {
                         // Swipe up = skip
                         animateCardUp {
-                            api.skipMovie(movie.id) { ok, error -> reportActionFailure(ok, error) }
+                            submitDecision { cb -> api.skipMovie(movie.id, cb) }
                             advanceCard()
                         }
                     } else {
@@ -1059,7 +1079,7 @@ class MainActivity : AppCompatActivity() {
                         val goRight = currentX > 0
                         if (goRight) {
                             animateCardOut(true) {
-                                api.keepShow(show.id) { ok, error -> reportActionFailure(ok, error) }
+                                submitDecision { cb -> api.keepShow(show.id, cb) }
                                 advanceCard()
                             }
                         } else {
@@ -1067,12 +1087,12 @@ class MainActivity : AppCompatActivity() {
                         }
                     } else if (currentY > threshold && abs(currentY) > abs(currentX)) {
                         animateCardDown {
-                            api.superKeepShow(show.id) { ok, error -> reportActionFailure(ok, error) }
+                            submitDecision { cb -> api.superKeepShow(show.id, cb) }
                             advanceCard()
                         }
                     } else if (currentY < -threshold && abs(currentY) > abs(currentX)) {
                         animateCardUp {
-                            api.skipShow(show.id) { ok, error -> reportActionFailure(ok, error) }
+                            submitDecision { cb -> api.skipShow(show.id, cb) }
                             advanceCard()
                         }
                     } else {
@@ -1128,51 +1148,45 @@ class MainActivity : AppCompatActivity() {
     // ==================== DISCOVER METHODS ====================
 
     private fun loadDiscover() {
-        if (isLoading) return
-        isLoading = true
-        discoverRequestId++  // Increment request ID
-        val thisRequest = discoverRequestId
         binding.tvStats.visibility = View.GONE
         binding.tvStats.text = "Loading discover..."
 
         val prefs = getSharedPreferences("movieswipe", MODE_PRIVATE)
         selectedProviders = prefs.getString("selected_providers", "") ?: ""
 
-        if (discoverType == "movies") {
-            api.discoverMovies(page = discoverPage, limit = 20, providers = selectedProviders, sortBy = discoverSort) { response, error ->
-                runOnUiThread {
-                    // Skip if a newer request was made
-                    if (thisRequest != discoverRequestId) return@runOnUiThread
-                    isLoading = false
-                    if (error != null) { binding.tvStats.text = "ERROR"; return@runOnUiThread }
-                    if (response != null && response.movies.isNotEmpty()) {
-                        discoverItems.clear()
-                        discoverItems.addAll(response.movies)
-                        currentIndex = 0
-                        binding.tvStats.visibility = View.GONE
-                        binding.tvStats.text = "Discover: page $discoverPage"
-                        showCurrentCard()
-                    } else {
-                        binding.tvStats.text = "No more movies!"
+        loadCoordinator.request { token ->
+            if (discoverType == "movies") {
+                api.discoverMovies(page = discoverPage, limit = QueueLoadCoordinator.BATCH_LIMIT, providers = selectedProviders, sortBy = discoverSort) { response, error ->
+                    runOnUiThread {
+                        if (!loadCoordinator.settle(token)) return@runOnUiThread
+                        if (error != null) { binding.tvStats.text = "ERROR"; return@runOnUiThread }
+                        if (response != null && response.movies.isNotEmpty()) {
+                            discoverItems.clear()
+                            discoverItems.addAll(response.movies)
+                            currentIndex = 0
+                            binding.tvStats.visibility = View.GONE
+                            binding.tvStats.text = "Discover: page $discoverPage"
+                            showCurrentCard()
+                        } else {
+                            binding.tvStats.text = "No more movies!"
+                        }
                     }
                 }
-            }
-        } else {
-            api.discoverShows(page = discoverPage, limit = 20, providers = selectedProviders, sortBy = discoverSort) { response, error ->
-                runOnUiThread {
-                    // Skip if a newer request was made
-                    if (thisRequest != discoverRequestId) return@runOnUiThread
-                    isLoading = false
-                    if (error != null) { binding.tvStats.text = "ERROR"; return@runOnUiThread }
-                    if (response != null && response.shows.isNotEmpty()) {
-                        discoverItems.clear()
-                        discoverItems.addAll(response.shows)
-                        currentIndex = 0
-                        binding.tvStats.visibility = View.GONE
-                        binding.tvStats.text = "Discover: page $discoverPage"
-                        showCurrentCard()
-                    } else {
-                        binding.tvStats.text = "No more shows!"
+            } else {
+                api.discoverShows(page = discoverPage, limit = QueueLoadCoordinator.BATCH_LIMIT, providers = selectedProviders, sortBy = discoverSort) { response, error ->
+                    runOnUiThread {
+                        if (!loadCoordinator.settle(token)) return@runOnUiThread
+                        if (error != null) { binding.tvStats.text = "ERROR"; return@runOnUiThread }
+                        if (response != null && response.shows.isNotEmpty()) {
+                            discoverItems.clear()
+                            discoverItems.addAll(response.shows)
+                            currentIndex = 0
+                            binding.tvStats.visibility = View.GONE
+                            binding.tvStats.text = "Discover: page $discoverPage"
+                            showCurrentCard()
+                        } else {
+                            binding.tvStats.text = "No more shows!"
+                        }
                     }
                 }
             }
@@ -1305,8 +1319,10 @@ class MainActivity : AppCompatActivity() {
                         val goRight = currentX > 0
                         if (goRight) {
                             animateCardOut(true) {
-                                if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
-                                else api.addShowFromDiscover(item.tmdbId) { ok, error -> reportActionFailure(ok, error) }
+                                submitDecision { cb ->
+                                    if (discoverType == "movies") api.addMovieFromDiscover(item.tmdbId, cb)
+                                    else api.addShowFromDiscover(item.tmdbId, cb)
+                                }
                                 advanceCard()
                             }
                         } else {
