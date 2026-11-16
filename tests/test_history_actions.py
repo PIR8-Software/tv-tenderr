@@ -223,7 +223,7 @@ class MovieHistoryActionTests(unittest.IsolatedAsyncioTestCase):
 
 class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
     async def test_remove_added_movie_deletes_radarr_item_then_history(self):
-        hidden = {"12345": {"action": "added", "type": "movie"}}
+        hidden = {"movie:12345": {"action": "added", "type": "movie"}}
         client = QueueAsyncClient(
             [FakeResponse(200, [{"id": 9, "tmdbId": 12345}]), FakeResponse(204)]
         )
@@ -244,7 +244,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["GET", "DELETE"], [request[0] for request in client.requests])
 
     async def test_remove_added_movie_preserves_history_when_radarr_delete_fails(self):
-        hidden = {"12345": {"action": "added", "type": "movie"}}
+        hidden = {"movie:12345": {"action": "added", "type": "movie"}}
         client = QueueAsyncClient(
             [
                 FakeResponse(200, [{"id": 9, "tmdbId": 12345}]),
@@ -267,7 +267,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], saved)
 
     async def test_remove_added_show_deletes_sonarr_item_then_history(self):
-        hidden = {"54321": {"action": "added", "type": "show"}}
+        hidden = {"show:54321": {"action": "added", "type": "show"}}
         client = QueueAsyncClient(
             [
                 FakeResponse(200, [{"tvdbId": 9876}]),
@@ -294,7 +294,7 @@ class DiscoverRemoveTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_remove_added_show_preserves_history_when_sonarr_delete_fails(self):
-        hidden = {"54321": {"action": "added", "type": "show"}}
+        hidden = {"show:54321": {"action": "added", "type": "show"}}
         client = QueueAsyncClient(
             [
                 FakeResponse(200, [{"tvdbId": 9876}]),

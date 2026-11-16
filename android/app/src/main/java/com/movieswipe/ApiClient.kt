@@ -7,7 +7,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class ApiClient(private var baseUrl: String, private var apiToken: String = "") {
+class ApiClient(rawBaseUrl: String, private var apiToken: String = "") {
+    // F5: the active endpoint is always a validated HTTP(S) URL. An invalid
+    // candidate (constructor or setUrl) falls back to / retains the previous
+    // valid configuration instead of crashing request construction later.
+    private var baseUrl: String = BackendUrl.resolve(rawBaseUrl)
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -23,9 +28,71 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
         .build()
     private val gson = Gson()
 
-    fun setUrl(url: String) { baseUrl = url }
+    fun setUrl(url: String) {
+        BackendUrl.normalize(url)?.let { baseUrl = it }
+    }
+
     fun setToken(token: String) { apiToken = token }
     fun getBaseUrl(): String = baseUrl
+
+    // ==================== F6: CENTRALIZED DEFENSIVE PARSING ====================
+    //
+    // Every "successful" body goes through [parseBody]: malformed JSON, HTML,
+    // JSON null, empty bodies and schema violations all become a typed failure
+    // delivered through the ordinary callback exactly once. Exceptions thrown
+    // by caller callback code are never caught here.
+
+    private fun <T> enqueueParsed(request: Request, type: Class<T>, callback: (T?, String?) -> Unit) {
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(null, e.message ?: "Network error")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val outcome: Pair<T?, String?> = response.use {
+                    if (!it.isSuccessful) {
+                        null to "HTTP ${it.code}"
+                    } else {
+                        val body = try {
+                            it.body?.string()
+                        } catch (e: IOException) {
+                            null
+                        }
+                        parseBody(body, type)
+                    }
+                }
+                callback(outcome.first, outcome.second)
+            }
+        })
+    }
+
+    private fun <T> parseBody(body: String?, type: Class<T>): Pair<T?, String?> {
+        if (body.isNullOrBlank()) return null to "Empty server response"
+        val parsed: T? = try {
+            gson.fromJson(body, type)
+        } catch (e: RuntimeException) {
+            // Malformed payloads (bad JSON, HTML, type mismatches) must not
+            // escape onto the OkHttp callback thread.
+            null
+        }
+        if (parsed == null || !isSchemaValid(parsed)) return null to "Invalid server response"
+        return parsed to null
+    }
+
+    @Suppress("SENSELESS_COMPARISON")
+    private fun isSchemaValid(value: Any): Boolean = when (value) {
+        is MoviesResponse -> value.movies != null && value.movies.all { it.title != null }
+        is ShowsResponse -> value.shows != null && value.shows.all { it.title != null }
+        is HistoryResponse -> value.history != null
+        is CalendarResponse -> value.calendar != null
+        is DiscoverMoviesResponse -> value.movies != null && value.movies.all { it.title != null }
+        is DiscoverShowsResponse -> value.shows != null && value.shows.all { it.title != null }
+        is ProvidersResponse -> value.movie_providers != null && value.tv_providers != null
+        is StatsResponse -> value.movies != null && value.shows != null && value.discover != null
+        else -> true
+    }
+
+    // ==================== MOVIE METHODS ====================
 
     fun refreshPlex(callback: (Boolean, String?) -> Unit) {
         val request = Request.Builder()
@@ -58,22 +125,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .get()
             .build()
 
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback(null, e.message)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        val movies = gson.fromJson(body, MoviesResponse::class.java)
-                        callback(movies, null)
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
-            }
-        })
+        enqueueParsed(request, MoviesResponse::class.java, callback)
     }
 
     fun keepMovie(movieId: Int, callback: (Boolean, String?) -> Unit) {
@@ -115,23 +167,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/stats")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback(null, e.message)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        val stats = gson.fromJson(body, StatsResponse::class.java)
-                        callback(stats, null)
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
-            }
-        })
+        enqueueParsed(request, StatsResponse::class.java, callback)
     }
 
     fun getPosterUrl(movieId: Int): String {
@@ -143,20 +179,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/calendar?days=$days")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { callback(null, e.message) }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        callback(gson.fromJson(body, CalendarResponse::class.java), null)
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
-            }
-        })
+        enqueueParsed(request, CalendarResponse::class.java, callback)
     }
 
     fun getHistory(callback: (HistoryResponse?, String?) -> Unit) {
@@ -164,23 +187,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/history")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback(null, e.message)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        val history = gson.fromJson(body, HistoryResponse::class.java)
-                        callback(history, null)
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
-            }
-        })
+        enqueueParsed(request, HistoryResponse::class.java, callback)
     }
 
     fun unkeepMovie(movieId: Int, callback: (Boolean, String?) -> Unit) {
@@ -206,22 +213,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .get()
             .build()
 
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback(null, e.message)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        val shows = gson.fromJson(body, ShowsResponse::class.java)
-                        callback(shows, null)
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
-            }
-        })
+        enqueueParsed(request, ShowsResponse::class.java, callback)
     }
 
     fun postShowAction(showId: Int, action: String, callback: (Boolean, String?) -> Unit) {
@@ -271,23 +263,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/shows/history")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                callback(null, e.message)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        val history = gson.fromJson(body, HistoryResponse::class.java)
-                        callback(history, null)
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
-            }
-        })
+        enqueueParsed(request, HistoryResponse::class.java, callback)
     }
 
     // ==================== DISCOVER METHODS ====================
@@ -297,54 +273,21 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/providers")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { callback(null, e.message) }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        callback(gson.fromJson(body, ProvidersResponse::class.java), null)
-                    } else { callback(null, "HTTP ${it.code}") }
-                }
-            }
-        })
+        enqueueParsed(request, ProvidersResponse::class.java, callback)
     }
 
     fun discoverMovies(page: Int = 1, limit: Int = 20, providers: String = "", sortBy: String = "popularity.desc", callback: (DiscoverMoviesResponse?, String?) -> Unit) {
         val providersQuery = if (providers.isNotEmpty()) "&providers=${java.net.URLEncoder.encode(providers, "UTF-8")}" else ""
         val url = "$baseUrl/api/discover/movies?page=$page&limit=$limit&sort_by=${java.net.URLEncoder.encode(sortBy, "UTF-8")}$providersQuery"
         val request = Request.Builder().url(url).get().build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { callback(null, e.message) }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        callback(gson.fromJson(body, DiscoverMoviesResponse::class.java), null)
-                    } else { callback(null, "HTTP ${it.code}") }
-                }
-            }
-        })
+        enqueueParsed(request, DiscoverMoviesResponse::class.java, callback)
     }
 
     fun discoverShows(page: Int = 1, limit: Int = 20, providers: String = "", sortBy: String = "popularity.desc", callback: (DiscoverShowsResponse?, String?) -> Unit) {
         val providersQuery = if (providers.isNotEmpty()) "&providers=${java.net.URLEncoder.encode(providers, "UTF-8")}" else ""
         val url = "$baseUrl/api/discover/shows?page=$page&limit=$limit&sort_by=${java.net.URLEncoder.encode(sortBy, "UTF-8")}$providersQuery"
         val request = Request.Builder().url(url).get().build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { callback(null, e.message) }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        callback(gson.fromJson(body, DiscoverShowsResponse::class.java), null)
-                    } else { callback(null, "HTTP ${it.code}") }
-                }
-            }
-        })
+        enqueueParsed(request, DiscoverShowsResponse::class.java, callback)
     }
 
     fun dislikeDiscover(tmdbId: Int, title: String? = null, year: String? = null, posterUrl: String? = null, type: String = "movie", callback: (Boolean, String?) -> Unit = { _, _ -> }) {
@@ -424,18 +367,7 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/discover/history")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { callback(null, e.message) }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        callback(gson.fromJson(body, HistoryResponse::class.java), null)
-                    } else { callback(null, "HTTP ${it.code}") }
-                }
-            }
-        })
+        enqueueParsed(request, HistoryResponse::class.java, callback)
     }
 
     fun unhideDiscover(tmdbId: Int, callback: (Boolean, String?) -> Unit) {
@@ -487,24 +419,13 @@ class ApiClient(private var baseUrl: String, private var apiToken: String = "") 
             .url("$baseUrl/api/latest-release")
             .get()
             .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) { callback(null, e.message) }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (it.isSuccessful) {
-                        val body = it.body?.string()
-                        val info = gson.fromJson(body, UpdateInfo::class.java)
-                        if (info.error != null) {
-                            callback(null, info.error)
-                        } else {
-                            callback(info, null)
-                        }
-                    } else {
-                        callback(null, "HTTP ${it.code}")
-                    }
-                }
+        enqueueParsed(request, UpdateInfo::class.java) { info, error ->
+            when {
+                error != null -> callback(null, error)
+                info == null -> callback(null, "Invalid server response")
+                info.error != null -> callback(null, info.error)
+                else -> callback(info, null)
             }
-        })
+        }
     }
 }

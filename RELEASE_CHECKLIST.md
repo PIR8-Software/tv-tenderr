@@ -4,6 +4,27 @@ The release process is manual by design: CI verifies source and tests but **neve
 publishes an APK**. This checklist is the release gate — the device smoke is the
 only thing that sees runtime behavior.
 
+## 0. Preflight (run before any build or publication)
+
+`./release_preflight.sh` is the reusable, read-only gate that prevents the
+known mishap of building or publishing from a stale base or with a version
+that is not strictly newer than the latest release or the installed app. It
+never cleans, resets, or deletes anything.
+
+```bash
+# Fetches origin/tags, verifies base freshness, detects dirty state,
+# checks version monotonicity and signing continuity:
+./release_preflight.sh --planned X.Y.Z --installed <device versionName>
+
+# Read the device version first (read-only):
+#   adb shell dumpsys package com.movieswipe | grep -E 'versionName|versionCode'
+```
+
+- [ ] `./release_preflight.sh --planned X.Y.Z --installed <on-device versionName>` passes
+- [ ] The planned version is **strictly newer** than the latest GitHub release and the installed app
+- [ ] The working tree is clean (the script fails on dirty state; commit or stash first — it never cleans for you)
+- [ ] The keystore certificate fingerprint check passes (signing continuity — protects in-place updates)
+
 ## 1. Tag
 
 - [ ] `main` is green: **CI** (`tests (3.10)`, `tests (3.12)`, `lint`) and **Release source checks** (`backend`, `android`)

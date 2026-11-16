@@ -195,6 +195,79 @@ def save_show_decisions(decisions):
     save_json_store(SHOW_DECISIONS_FILE, decisions)
 
 
+OPJOURNAL_FILE = DATA_DIR / "operation_journal.json"
+
+# Durable operation journal for destructive upstream work. "intent" is
+# persisted BEFORE the first destructive effect; "deleting"/"cleaning" marks
+# effects in progress; "effect_done" means the upstream service acknowledged
+# the destructive effect; "recorded" means the local recovery record is
+# durable; "failed" is a definite upstream rejection; "uncertain" means the
+# outcome is unknown (network/process failure) and must be reconciled before
+# any retry. The journal preserves recovery METADATA only - media bytes
+# deleted upstream are never recoverable locally.
+JOURNAL_TERMINAL_PHASES = ("recorded", "failed")
+JOURNAL_RETENTION_DAYS = 30
+
+
+def load_journal():
+    return load_json_store(OPJOURNAL_FILE)
+
+
+def save_journal(journal):
+    """Atomically replace the journal, pruning old terminal entries."""
+    if not isinstance(journal, dict):
+        raise HTTPException(
+            status_code=500, detail="Operation journal must be an object"
+        )
+    cutoff = (datetime.now() - timedelta(days=JOURNAL_RETENTION_DAYS)).isoformat()
+    pruned = {}
+    for op_id, entry in journal.items():
+        if (
+            isinstance(entry, dict)
+            and entry.get("phase") in JOURNAL_TERMINAL_PHASES
+            and str(entry.get("updatedAt", "")) < cutoff
+        ):
+            continue
+        pruned[op_id] = entry
+    save_json_store(OPJOURNAL_FILE, pruned)
+
+
+def journal_entry(op_id):
+    journal = load_journal()
+    entry = journal.get(op_id)
+    return entry if isinstance(entry, dict) else None
+
+
+def journal_begin(op_id, operation, kind, service, upstream_id, recovery):
+    """Durably record destructive intent. MUST complete before any destructive
+    upstream effect: if this write fails, the operation is cancelled untouched."""
+    journal = load_journal()
+    previous = journal.get(op_id) if isinstance(journal.get(op_id), dict) else {}
+    now = datetime.now().isoformat()
+    journal[op_id] = {
+        "operation": operation,
+        "kind": kind,
+        "service": service,
+        "upstreamId": upstream_id,
+        "phase": "intent",
+        "recovery": recovery,
+        "startedAt": previous.get("startedAt", now),
+        "updatedAt": now,
+    }
+    save_journal(journal)
+
+
+def journal_phase(op_id, phase, **fields):
+    """Durably record a phase transition, upserting if the entry is missing."""
+    journal = load_journal()
+    entry = journal.get(op_id) if isinstance(journal.get(op_id), dict) else {}
+    entry["phase"] = phase
+    entry["updatedAt"] = datetime.now().isoformat()
+    entry.update(fields)
+    journal[op_id] = entry
+    save_journal(journal)
+
+
 def get_plex_sections():
     """Get Plex library sections to find the movies library."""
     if not PLEX_TOKEN:
@@ -498,15 +571,43 @@ async def super_keep_movie(movie_id: int):
 @app.post("/api/movies/{movie_id}/block")
 async def block_movie(movie_id: int):
     """Remove movie from Radarr and add to blocklist."""
+    op_id = f"block:movie:{movie_id}"
     decisions = load_decisions()
+    prior = journal_entry(op_id)
+
+    def finish_record(recovery):
+        decisions[str(movie_id)] = {
+            "action": "block",
+            "timestamp": datetime.now().isoformat(),
+            **recovery,
+        }
+        save_decisions(decisions)
+
+    # A previous attempt already deleted upstream but lost its local record
+    # write; finish the record from the journal without re-deleting.
+    if prior and prior.get("phase") == "effect_done":
+        finish_record(prior.get("recovery", {}))
+        journal_phase(op_id, "recorded")
+        return {"ok": True, "action": "block"}
 
     async with httpx.AsyncClient() as client:
-        # Get movie details BEFORE deleting
+        # Get movie details BEFORE deleting. This lookup also reconciles an
+        # interrupted previous attempt: if the item is already gone, the
+        # destructive effect happened and we finish the local record.
+        interrupted = bool(prior) and prior.get("phase") in (
+            "intent",
+            "deleting",
+            "uncertain",
+        )
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie/{movie_id}",
             headers={"X-Api-Key": RADARR_KEY},
             timeout=15,
         )
+        if interrupted and prior and r.status_code == 404:
+            finish_record(prior.get("recovery", {}))
+            journal_phase(op_id, "recorded")
+            return {"ok": True, "action": "block"}
         if r.status_code != 200:
             raise HTTPException(
                 status_code=r.status_code, detail="Failed to get movie before block"
@@ -524,24 +625,37 @@ async def block_movie(movie_id: int):
             "posterUrl": get_poster_url(m),
         }
 
+        # Durable intent BEFORE the first destructive effect. If this write
+        # fails the block is cancelled and nothing has been deleted.
+        journal_begin(op_id, "block", "movie", "radarr", movie_id, movie_info)
+        journal_phase(op_id, "deleting")
+
         # Delete from Radarr (deleteFiles=true removes the actual files)
-        r = await client.delete(
-            f"{RADARR_URL}/api/v3/movie/{movie_id}",
-            headers={"X-Api-Key": RADARR_KEY},
-            params={"deleteFiles": "true", "addImportListExclusion": "true"},
-            timeout=30,
-        )
+        try:
+            r = await client.delete(
+                f"{RADARR_URL}/api/v3/movie/{movie_id}",
+                headers={"X-Api-Key": RADARR_KEY},
+                params={"deleteFiles": "true", "addImportListExclusion": "true"},
+                timeout=30,
+            )
+        except Exception as exc:
+            journal_phase(op_id, "uncertain", error=str(exc))
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Radarr delete outcome unknown; any deleted media files are "
+                    "not recoverable. Retry block to reconcile the record"
+                ),
+            ) from exc
         if r.status_code not in (200, 204):
+            journal_phase(op_id, "failed", detail=r.text)
             raise HTTPException(
                 status_code=r.status_code, detail=f"Radarr delete failed: {r.text}"
             )
+        journal_phase(op_id, "effect_done")
 
-    decisions[str(movie_id)] = {
-        "action": "block",
-        "timestamp": datetime.now().isoformat(),
-        **movie_info,
-    }
-    save_decisions(decisions)
+    finish_record(movie_info)
+    journal_phase(op_id, "recorded")
     return {"ok": True, "action": "block"}
 
 
@@ -1191,15 +1305,43 @@ async def super_keep_show(show_id: int):
 @app.post("/api/shows/{show_id}/block")
 async def block_show(show_id: int):
     """Remove show from Sonarr (delete files + blocklist)."""
+    op_id = f"block:show:{show_id}"
     decisions = load_show_decisions()
+    prior = journal_entry(op_id)
+
+    def finish_record(recovery):
+        decisions[str(show_id)] = {
+            "action": "block",
+            "timestamp": datetime.now().isoformat(),
+            **recovery,
+        }
+        save_show_decisions(decisions)
+
+    # A previous attempt already deleted upstream but lost its local record
+    # write; finish the record from the journal without re-deleting.
+    if prior and prior.get("phase") == "effect_done":
+        finish_record(prior.get("recovery", {}))
+        journal_phase(op_id, "recorded")
+        return {"ok": True, "action": "block"}
 
     async with httpx.AsyncClient() as client:
-        # Get show details BEFORE deleting
+        # Get show details BEFORE deleting. This lookup also reconciles an
+        # interrupted previous attempt: if the series is already gone, the
+        # destructive effect happened and we finish the local record.
+        interrupted = bool(prior) and prior.get("phase") in (
+            "intent",
+            "deleting",
+            "uncertain",
+        )
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/{show_id}",
             headers={"X-Api-Key": SONARR_KEY},
             timeout=15,
         )
+        if interrupted and prior and r.status_code == 404:
+            finish_record(prior.get("recovery", {}))
+            journal_phase(op_id, "recorded")
+            return {"ok": True, "action": "block"}
         if r.status_code != 200:
             raise HTTPException(
                 status_code=r.status_code, detail="Failed to get series before block"
@@ -1222,24 +1364,36 @@ async def block_show(show_id: int):
             "posterUrl": poster_url,
         }
 
+        # Durable intent BEFORE the first destructive effect.
+        journal_begin(op_id, "block", "show", "sonarr", show_id, show_info)
+        journal_phase(op_id, "deleting")
+
         # Delete from Sonarr
-        r = await client.delete(
-            f"{SONARR_URL}/api/v3/series/{show_id}",
-            headers={"X-Api-Key": SONARR_KEY},
-            params={"deleteFiles": "true", "addImportListExclusion": "true"},
-            timeout=30,
-        )
+        try:
+            r = await client.delete(
+                f"{SONARR_URL}/api/v3/series/{show_id}",
+                headers={"X-Api-Key": SONARR_KEY},
+                params={"deleteFiles": "true", "addImportListExclusion": "true"},
+                timeout=30,
+            )
+        except Exception as exc:
+            journal_phase(op_id, "uncertain", error=str(exc))
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Sonarr delete outcome unknown; any deleted media files are "
+                    "not recoverable. Retry block to reconcile the record"
+                ),
+            ) from exc
         if r.status_code not in (200, 204):
+            journal_phase(op_id, "failed", detail=r.text)
             raise HTTPException(
                 status_code=r.status_code, detail=f"Sonarr delete failed: {r.text}"
             )
+        journal_phase(op_id, "effect_done")
 
-    decisions[str(show_id)] = {
-        "action": "block",
-        "timestamp": datetime.now().isoformat(),
-        **show_info,
-    }
-    save_show_decisions(decisions)
+    finish_record(show_info)
+    journal_phase(op_id, "recorded")
     return {"ok": True, "action": "block"}
 
 
@@ -1352,7 +1506,30 @@ async def unblock_show(show_id: int):
 @app.post("/api/shows/{show_id}/clean")
 async def clean_show(show_id: int):
     """Remove all episode files but keep show monitored for future episodes."""
+    op_id = f"clean:show:{show_id}"
     decisions = load_show_decisions()
+    prior = journal_entry(op_id)
+
+    def finish_record(recovery):
+        decisions[str(show_id)] = {
+            "action": "clean",
+            "timestamp": datetime.now().isoformat(),
+            **recovery,
+        }
+        save_show_decisions(decisions)
+
+    # A previous attempt finished all upstream effects but lost its local
+    # record write; finish from the journal without repeating any effect.
+    if prior and prior.get("phase") == "effect_done":
+        recovery = prior.get("recovery", {})
+        finish_record(recovery)
+        journal_phase(op_id, "recorded")
+        return {
+            "ok": True,
+            "deleted": recovery.get("deletedFiles", 0),
+            "total": recovery.get("totalFiles", recovery.get("deletedFiles", 0)),
+            "freedGB": recovery.get("freedGB", 0),
+        }
 
     async with httpx.AsyncClient() as client:
         # Get show info before cleaning
@@ -1394,79 +1571,118 @@ async def clean_show(show_id: int):
         files = r.json()
         deleted = 0
         total_size = 0
-        for f in files:
-            total_size += f.get("size", 0)
-            dr = await client.delete(
-                f"{SONARR_URL}/api/v3/episodefile/{f['id']}",
+
+        # Durable intent BEFORE the first destructive effect. Retry of an
+        # interrupted clean is safe: it re-lists upstream state and resumes.
+        journal_begin(
+            op_id,
+            "clean",
+            "show",
+            "sonarr",
+            show_id,
+            {
+                **show_info,
+                "deletedFiles": 0,
+                "totalFiles": len(files),
+                "freedGB": 0,
+            },
+        )
+        journal_phase(op_id, "cleaning", filesDeleted=0, totalFiles=len(files))
+
+        try:
+            for f in files:
+                total_size += f.get("size", 0)
+                dr = await client.delete(
+                    f"{SONARR_URL}/api/v3/episodefile/{f['id']}",
+                    headers={"X-Api-Key": SONARR_KEY},
+                    timeout=15,
+                )
+                if dr.status_code not in (200, 204):
+                    journal_phase(
+                        op_id, "cleaning", filesDeleted=deleted, lastError=dr.text
+                    )
+                    raise HTTPException(
+                        status_code=dr.status_code,
+                        detail=f"Episode file delete failed after {deleted} deletes; retry clean to finish",
+                    )
+                deleted += 1
+                journal_phase(op_id, "cleaning", filesDeleted=deleted)
+
+            # Unmonitor all episodes so they don't re-download
+            er = await client.get(
+                f"{SONARR_URL}/api/v3/episode",
+                headers={"X-Api-Key": SONARR_KEY},
+                params={"seriesId": show_id},
+                timeout=30,
+            )
+            if er.status_code != 200:
+                raise HTTPException(
+                    status_code=er.status_code,
+                    detail="Failed to list episodes for clean",
+                )
+            episodes = er.json()
+            for ep in episodes:
+                if ep.get("monitored"):
+                    ep["monitored"] = False
+                    put = await client.put(
+                        f"{SONARR_URL}/api/v3/episode/{ep['id']}",
+                        headers={"X-Api-Key": SONARR_KEY},
+                        json=ep,
+                        timeout=15,
+                    )
+                    if put.status_code not in (200, 202):
+                        raise HTTPException(
+                            status_code=put.status_code,
+                            detail="Failed to unmonitor episode",
+                        )
+
+            # Make sure show stays monitored (for future episodes)
+            r = await client.get(
+                f"{SONARR_URL}/api/v3/series/{show_id}",
                 headers={"X-Api-Key": SONARR_KEY},
                 timeout=15,
             )
-            if dr.status_code not in (200, 204):
+            if r.status_code != 200:
                 raise HTTPException(
-                    status_code=dr.status_code,
-                    detail=f"Episode file delete failed after {deleted} deletes; retry clean to finish",
+                    status_code=r.status_code,
+                    detail="Failed to reload series after clean",
                 )
-            deleted += 1
-
-        # Unmonitor all episodes so they don't re-download
-        er = await client.get(
-            f"{SONARR_URL}/api/v3/episode",
-            headers={"X-Api-Key": SONARR_KEY},
-            params={"seriesId": show_id},
-            timeout=30,
-        )
-        if er.status_code != 200:
-            raise HTTPException(
-                status_code=er.status_code, detail="Failed to list episodes for clean"
+            show = r.json()
+            show["monitored"] = True
+            put = await client.put(
+                f"{SONARR_URL}/api/v3/series/{show_id}",
+                headers={"X-Api-Key": SONARR_KEY},
+                json=show,
+                timeout=15,
             )
-        episodes = er.json()
-        for ep in episodes:
-            if ep.get("monitored"):
-                ep["monitored"] = False
-                put = await client.put(
-                    f"{SONARR_URL}/api/v3/episode/{ep['id']}",
-                    headers={"X-Api-Key": SONARR_KEY},
-                    json=ep,
-                    timeout=15,
+            if put.status_code not in (200, 202):
+                raise HTTPException(
+                    status_code=put.status_code,
+                    detail="Failed to keep series monitored",
                 )
-                if put.status_code not in (200, 202):
-                    raise HTTPException(
-                        status_code=put.status_code,
-                        detail="Failed to unmonitor episode",
-                    )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            journal_phase(op_id, "uncertain", filesDeleted=deleted, error=str(exc))
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "Clean outcome unknown; any deleted episode files are "
+                    "not recoverable. Retry clean to reconcile the record"
+                ),
+            ) from exc
 
-        # Make sure show stays monitored (for future episodes)
-        r = await client.get(
-            f"{SONARR_URL}/api/v3/series/{show_id}",
-            headers={"X-Api-Key": SONARR_KEY},
-            timeout=15,
-        )
-        if r.status_code != 200:
-            raise HTTPException(
-                status_code=r.status_code, detail="Failed to reload series after clean"
-            )
-        show = r.json()
-        show["monitored"] = True
-        put = await client.put(
-            f"{SONARR_URL}/api/v3/series/{show_id}",
-            headers={"X-Api-Key": SONARR_KEY},
-            json=show,
-            timeout=15,
-        )
-        if put.status_code not in (200, 202):
-            raise HTTPException(
-                status_code=put.status_code, detail="Failed to keep series monitored"
-            )
+        recovery = {
+            **show_info,
+            "deletedFiles": deleted,
+            "totalFiles": len(files),
+            "freedGB": round(total_size / (1024**3), 2),
+        }
+        journal_phase(op_id, "effect_done", recovery=recovery)
 
     # Log the clean action
-    decisions[str(show_id)] = {
-        "action": "clean",
-        "timestamp": datetime.now().isoformat(),
-        "deletedFiles": deleted,
-        "freedGB": round(total_size / (1024**3), 2),
-        **show_info,
-    }
-    save_show_decisions(decisions)
+    finish_record(recovery)
+    journal_phase(op_id, "recorded")
 
     return {
         "ok": True,
@@ -1629,8 +1845,72 @@ SONARR_ROOT_FOLDER = os.getenv("SONARR_ROOT_FOLDER", "I:\\TV")
 HIDDEN_FILE = DATA_DIR / "hidden_discover.json"
 
 
+def discover_type(value):
+    if value in ("movie", "movies"):
+        return "movie"
+    if value in ("show", "shows"):
+        return "show"
+    return None
+
+
+def discover_key(tmdb_id, media_type):
+    kind = discover_type(media_type)
+    if not kind:
+        raise HTTPException(status_code=400, detail="Unsupported discover type")
+    return f"{kind}:{tmdb_id}"
+
+
+def normalize_hidden(data):
+    # Lossless lazy migration: never guess unknown types or overwrite a collision.
+    # A numeric key with a known type becomes typed; an untyped or colliding legacy
+    # row remains unchanged so every old record survives and can be recovered.
+    result = dict(data)
+    for key, info in data.items():
+        if not key.isdigit() or not isinstance(info, dict):
+            continue
+        kind = discover_type(info.get("type"))
+        if not kind:
+            continue
+        target = discover_key(key, kind)
+        if target in result:
+            continue
+        result[target] = {**info, "type": kind}
+        del result[key]
+    return result
+
+
+def hidden_identity(hidden, tmdb_id, media_type=None):
+    numeric = str(tmdb_id)
+    typed = {key: info for key, info in hidden.items() if key.endswith(f":{numeric}")}
+    if media_type is not None:
+        kind = discover_type(media_type)
+        if not kind:
+            raise HTTPException(status_code=400, detail="Unsupported discover type")
+        # A retained legacy collision requires manual resolution; never discard it.
+        if numeric in hidden and (
+            not typed or any(info.get("type") == kind for info in typed.values())
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Ambiguous legacy Discover record; preserved for manual recovery",
+            )
+        key = discover_key(tmdb_id, kind)
+        return key
+    candidates = list(typed)
+    if numeric in hidden:
+        candidates.append(numeric)
+    if len(candidates) > 1 or (
+        candidates and not discover_type(hidden[candidates[0]].get("type"))
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Discover media type required; legacy record preserved",
+        )
+    return candidates[0] if candidates else discover_key(tmdb_id, "movie")
+
+
 def load_hidden():
-    return load_json_store(HIDDEN_FILE)
+    return normalize_hidden(load_json_store(HIDDEN_FILE))
 
 
 def save_hidden(hidden):
@@ -1720,7 +2000,11 @@ async def discover_movies(
 
             for m in data.get("results", []):
                 tmdb_id = m["id"]
-                if str(tmdb_id) in hidden or str(tmdb_id) in existing_ids:
+                if (
+                    discover_key(tmdb_id, "movie") in hidden
+                    or str(tmdb_id) in hidden  # legacy untyped rows hide both
+                    or str(tmdb_id) in existing_ids
+                ):
                     continue
 
                 poster_url = (
@@ -1802,7 +2086,7 @@ async def discover_shows(
 
             for s in data.get("results", []):
                 tmdb_id = s["id"]
-                if str(tmdb_id) in hidden:
+                if discover_key(tmdb_id, "show") in hidden or str(tmdb_id) in hidden:
                     continue
                 show_key = f"{s.get('name','').lower().strip()}|{s.get('first_air_date','')[:4]}"
                 if show_key in existing_titles:
@@ -1964,13 +2248,13 @@ async def dislike_discover(tmdb_id: int, body: dict | None = None):
             raise HTTPException(status_code=400, detail="Unsupported discover type")
 
     hidden = load_hidden()
-    hidden[str(tmdb_id)] = {
+    hidden[discover_key(tmdb_id, media_type)] = {
         "action": "hidden",
         "timestamp": datetime.now().isoformat(),
         "title": title,
         "year": history_year(year),
         "posterUrl": body.get("posterUrl"),
-        "type": media_type,
+        "type": discover_type(media_type),
         "hideSource": "dislike",
         **exclusion_metadata,
     }
@@ -1983,13 +2267,13 @@ async def hide_discover(tmdb_id: int, body: dict | None = None):
     """Hide a discover item so it doesn't show again."""
     body = {} if body is None else body
     hidden = load_hidden()
-    hidden[str(tmdb_id)] = {
+    hidden[discover_key(tmdb_id, body.get("type", "movie"))] = {
         "action": body.get("action", "hidden"),
         "timestamp": datetime.now().isoformat(),
         "title": body.get("title"),
         "year": history_year(body.get("year")),
         "posterUrl": body.get("posterUrl"),
-        "type": body.get("type", "movie"),
+        "type": discover_type(body.get("type", "movie")),
         "hideSource": "skip",
     }
     save_hidden(hidden)
@@ -2035,7 +2319,7 @@ async def add_movie_from_discover(tmdb_id: int):
 
     # Hide from discover
     hidden = load_hidden()
-    hidden[str(tmdb_id)] = {
+    hidden[discover_key(tmdb_id, "movie")] = {
         "action": "added",
         "timestamp": datetime.now().isoformat(),
         "title": movie_data.get("title"),
@@ -2093,7 +2377,7 @@ async def add_show_from_discover(tmdb_id: int):
 
     # Hide from discover
     hidden = load_hidden()
-    hidden[str(tmdb_id)] = {
+    hidden[discover_key(tmdb_id, "show")] = {
         "action": "added",
         "timestamp": datetime.now().isoformat(),
         "title": show_data.get("title"),
@@ -2112,14 +2396,15 @@ async def get_discover_history():
     history = []
 
     async with httpx.AsyncClient() as client:
-        for tmdb_id, info in hidden.items():
+        for record_key, info in hidden.items():
+            tmdb_id = record_key.rsplit(":", 1)[-1]
             title = info.get("title")
             year = info.get("year")
             poster = info.get("posterUrl")
-            item_type = info.get("type", "movie")
+            item_type = discover_type(info.get("type"))
 
             # Look up title from TMDb if missing
-            if not title:
+            if not title and item_type:
                 with suppress(Exception):
                     endpoint = "movie" if item_type == "movie" else "tv"
                     r = await client.get(
@@ -2142,8 +2427,10 @@ async def get_discover_history():
             history.append(
                 {
                     # Android uses the shared HistoryItem model for every section.
-                    "movieId": int(tmdb_id),
-                    "tmdbId": int(tmdb_id),
+                    "movieId": int(tmdb_id) if tmdb_id.isdigit() else 0,
+                    "tmdbId": int(tmdb_id) if tmdb_id.isdigit() else None,
+                    "recordKey": record_key,
+                    "identityAmbiguous": record_key.isdigit(),
                     "action": info.get("action", "hidden"),
                     "timestamp": info.get("timestamp"),
                     "title": title,
@@ -2158,10 +2445,10 @@ async def get_discover_history():
 
 
 @app.post("/api/discover/{tmdb_id}/unhide")
-async def unhide_discover(tmdb_id: int):
+async def unhide_discover(tmdb_id: int, body: dict | None = None):
     """Remove a discover hide and its associated import-list exclusion."""
     hidden = load_hidden()
-    mid = str(tmdb_id)
+    mid = hidden_identity(hidden, tmdb_id, (body or {}).get("type"))
     info = hidden.get(mid)
     if not info:
         return {"ok": True}
@@ -2270,6 +2557,7 @@ async def unhide_discover(tmdb_id: int):
 @app.post("/api/discover/{tmdb_id}/remove_movie")
 async def remove_movie_from_discover(tmdb_id: int):
     """Remove a movie that was added via discover from Radarr."""
+    hidden_identity(load_hidden(), tmdb_id, "movie")
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"{RADARR_URL}/api/v3/movie", headers={"X-Api-Key": RADARR_KEY}, timeout=30
@@ -2296,7 +2584,7 @@ async def remove_movie_from_discover(tmdb_id: int):
 
     # Remove from hidden so it shows in discover again
     hidden = load_hidden()
-    mid = str(tmdb_id)
+    mid = hidden_identity(hidden, tmdb_id, "movie")
     if mid in hidden:
         del hidden[mid]
         save_hidden(hidden)
@@ -2307,6 +2595,7 @@ async def remove_movie_from_discover(tmdb_id: int):
 @app.post("/api/discover/{tmdb_id}/remove_show")
 async def remove_show_from_discover(tmdb_id: int):
     """Remove a show that was added via discover from Sonarr."""
+    hidden_identity(load_hidden(), tmdb_id, "show")
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"{SONARR_URL}/api/v3/series/lookup",
@@ -2346,7 +2635,7 @@ async def remove_show_from_discover(tmdb_id: int):
 
     # Remove from hidden
     hidden = load_hidden()
-    mid = str(tmdb_id)
+    mid = hidden_identity(hidden, tmdb_id, "show")
     if mid in hidden:
         del hidden[mid]
         save_hidden(hidden)
