@@ -23,7 +23,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - run: python tests/run_isolated.py
-      - run: bash -n setup.sh install.sh release.sh
+      - run: bash -n setup.sh install.sh release.sh release_preflight.sh
   android:
     runs-on: ubuntu-latest
     steps:

@@ -10,7 +10,12 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="tv-isolated-") as directory:
     dest = Path(directory)
-    for name in ("backend.py", "release.sh", "requirements.txt"):
+    for name in (
+        "backend.py",
+        "release.sh",
+        "release_preflight.sh",
+        "requirements.txt",
+    ):
         shutil.copy2(root / name, dest / name)
     for name in ("tests", "web", "android/app/src"):
         shutil.copytree(

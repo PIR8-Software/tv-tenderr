@@ -52,4 +52,4 @@ jobs:
           black --check .
           isort --check-only .
       - name: Shell syntax
-        run: bash -n setup.sh install.sh release.sh bump_version.sh
+        run: bash -n setup.sh install.sh release.sh bump_version.sh release_preflight.sh
